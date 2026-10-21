@@ -1,0 +1,7 @@
+.env
+.venv/
+.kis_token.json
+__pycache__/
+node_modules/
+data/
+ml/models/
