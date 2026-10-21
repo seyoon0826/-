@@ -9,6 +9,10 @@ api:
 	cd backend && ../$(PY) -m uvicorn app.main:app --reload
 test:
 	cd backend && ../$(PY) -m pytest -q
+backfill:
+	cd backend && ../$(PY) -m app.pipelines.backfill
+scheduler:
+	cd backend && ../$(PY) -m app.pipelines.scheduler
 collect:
 	$(PY) scripts/collect_prices.py
 apitest:

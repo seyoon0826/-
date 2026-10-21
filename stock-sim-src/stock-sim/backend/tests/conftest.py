@@ -12,9 +12,10 @@ from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
+from app.core.db import Base
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -60,3 +61,17 @@ def db(engine):
         session.close()
         outer.rollback()
         conn.close()
+
+
+@pytest.fixture
+def sf(engine):
+    """파이프라인 테스트용 세션 팩토리. 실제로 커밋하므로 테스트 전후로 모든 테이블을 비운다."""
+    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+
+    def wipe():
+        with engine.begin() as c:
+            c.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+
+    wipe()
+    yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    wipe()

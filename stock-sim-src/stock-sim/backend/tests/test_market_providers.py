@@ -112,3 +112,14 @@ async def test_replay_only_requested_codes_and_books_match_quotes():
 def test_bars_to_events_sorted_by_time():
     ev = bars_to_events(_bars())
     assert [e.t for e in ev] == sorted(e.t for e in ev)
+
+
+async def test_synth_orderbook_from_off_tick_adjusted_price_is_orderable():
+    """과거 수정주가(예: 034020 2018-01-02 시가 11,703원)는 호가 단위에 안 맞는다.
+    합성 호가는 모두 주문 가능한 가격이어야 하고, 기준가를 사이에 두어야 한다."""
+    from datetime import datetime
+
+    ob = synth_orderbook("034020", 11_703, 1, datetime(2018, 1, 2), "replay")
+    assert ob.asks[0].price == 11_710 and ob.bids[0].price == 11_700
+    assert all(is_valid_tick(lv.price) for lv in ob.asks + ob.bids)
+    assert ob.bids[0].price < 11_703 < ob.asks[0].price

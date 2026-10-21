@@ -24,5 +24,14 @@ class Settings(BaseSettings):
     kis_poll_interval_sec: float = 3.0  # 웹소켓 장애 시 REST 폴링 주기
     kis_ws_silence_sec: float = 30.0  # 이 시간 동안 메시지가 없으면 REST 폴링으로 강등
 
+    # 수집 파이프라인 (SPEC 5, 6.2, 12)
+    universe_size: int = 30
+    universe_include_preferred: bool = False  # 우선주 포함 여부. 오너 미결정 — 기본은 보통주만  # TODO(owner)
+    news_interval_open_min: int = 5  # 장중(08:30~16:00)
+    news_interval_closed_min: int = 30
+    disclosure_interval_open_min: int = 10
+    disclosure_interval_closed_min: int = 60
+    cache_dir: str = ".cache"  # DART corp_code 등 주 1회 갱신 캐시
+
 
 settings = Settings()
