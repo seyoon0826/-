@@ -1,12 +1,15 @@
+PY := $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 up:
 	docker compose up -d db redis
 down:
 	docker compose down
+migrate:
+	cd backend && ../$(PY) -m alembic upgrade head
 api:
-	cd backend && uvicorn app.main:app --reload
+	cd backend && ../$(PY) -m uvicorn app.main:app --reload
 test:
-	cd backend && pytest -q
+	cd backend && ../$(PY) -m pytest -q
 collect:
-	python scripts/collect_prices.py
+	$(PY) scripts/collect_prices.py
 apitest:
-	python scripts/test_apis.py
+	$(PY) scripts/test_apis.py
