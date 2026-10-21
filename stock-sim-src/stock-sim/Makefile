@@ -13,3 +13,7 @@ collect:
 	$(PY) scripts/collect_prices.py
 apitest:
 	$(PY) scripts/test_apis.py
+lint:
+	cd backend && ../$(PY) -m ruff check . && ../$(PY) -m black --check .
+fmt:
+	cd backend && ../$(PY) -m ruff check . --fix && ../$(PY) -m black .

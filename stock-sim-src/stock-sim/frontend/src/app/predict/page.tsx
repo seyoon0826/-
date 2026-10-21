@@ -1,1 +1,6 @@
-export default function PredictList() { return <main>종목 목록 (TODO)</main>; }
+import StockTable from "@/components/predict/StockTable";
+import { stockList } from "@/lib/mock";
+
+export default function PredictList() {
+  return <StockTable stocks={stockList()} />;
+}

@@ -1,10 +1,25 @@
-"""predictions, prediction_factors, prediction_news, prediction_scenarios, prediction_outcomes, model_metrics (SPEC 9.3)"""
+"""predictions, prediction_factors, prediction_news, prediction_scenarios, prediction_outcomes,
+model_metrics (SPEC 9.3)
+"""
+
 from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric,
-    SmallInteger, String, Text, UniqueConstraint, func,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -98,7 +113,9 @@ class ModelMetric(Base):
     model_version: Mapped[str] = mapped_column(String(64), primary_key=True)
     scope: Mapped[str] = mapped_column(String(8), primary_key=True)  # offline | live
     window: Mapped[str] = mapped_column(String(8), primary_key=True)  # 20 | 60 | 250 | all
-    strategy: Mapped[str] = mapped_column(String(16), primary_key=True)  # model | always_up | momentum | kospi
+    strategy: Mapped[str] = mapped_column(
+        String(16), primary_key=True
+    )  # model | always_up | momentum | kospi
     metric: Mapped[str] = mapped_column(String(32), primary_key=True)
     value: Mapped[Decimal | None] = mapped_column(Numeric(24, 8))
     n: Mapped[int] = mapped_column(Integer)

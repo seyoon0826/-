@@ -3,6 +3,7 @@
 개발 DB 를 건드리지 않도록 `<DB명>_test` 데이터베이스를 만들어 alembic 으로 마이그레이션하고,
 각 테스트는 외부 트랜잭션 안에서 실행한 뒤 롤백한다. Postgres 에 접속할 수 없으면 DB 테스트는 skip.
 """
+
 from pathlib import Path
 
 import pytest

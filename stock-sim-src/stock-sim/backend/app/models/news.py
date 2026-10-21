@@ -1,9 +1,18 @@
 """news, news_stock_map, news_analysis, disclosures (SPEC 9.2)"""
+
 from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Numeric, String, Text, func,
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 

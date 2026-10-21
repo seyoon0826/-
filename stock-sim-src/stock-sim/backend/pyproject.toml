@@ -1,0 +1,24 @@
+[tool.black]
+line-length = 110
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["alembic/versions"]  # 자동 생성 마이그레이션은 린트 제외
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]  # backend/alembic 디렉터리와 이름이 같아 first-party 로 오인되는 것 방지
+
+[tool.ruff.lint.per-file-ignores]
+"app/main.py" = ["E402"]  # 키 로딩(load_dotenv)이 다른 import 보다 먼저여야 함
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]  # FastAPI 의존성 주입 관용구
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

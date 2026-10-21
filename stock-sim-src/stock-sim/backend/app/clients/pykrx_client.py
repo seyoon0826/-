@@ -1,5 +1,7 @@
 """pykrx: 키 불필요. 일봉, 시총, 투자자별 수급."""
+
 from datetime import datetime, timedelta
+
 import pandas as pd
 from pykrx import stock
 
@@ -27,16 +29,17 @@ def top_marketcap(n: int = 30, date: str | None = None) -> pd.DataFrame:
 def daily_ohlcv(code: str, start: str, end: str) -> pd.DataFrame:
     """일봉. start/end 는 'YYYYMMDD'."""
     df = stock.get_market_ohlcv_by_date(start, end, code)
-    return df.rename(columns={"시가": "open", "고가": "high", "저가": "low",
-                              "종가": "close", "거래량": "volume"})[
-        ["open", "high", "low", "close", "volume"]]
+    return df.rename(
+        columns={"시가": "open", "고가": "high", "저가": "low", "종가": "close", "거래량": "volume"}
+    )[["open", "high", "low", "close", "volume"]]
 
 
 def investor_net(code: str, start: str, end: str) -> pd.DataFrame:
     """투자자별 순매수 금액(외국인, 기관)."""
     df = stock.get_market_trading_value_by_date(start, end, code)
     return df.rename(columns={"외국인합계": "foreign_net", "기관합계": "inst_net"})[
-        ["foreign_net", "inst_net"]]
+        ["foreign_net", "inst_net"]
+    ]
 
 
 def collect(code: str, start: str, end: str) -> pd.DataFrame:

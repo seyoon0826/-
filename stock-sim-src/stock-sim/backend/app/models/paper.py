@@ -1,12 +1,25 @@
 """users, paper_accounts, orders, trades, positions, cash_ledger, portfolio_snapshots, fee_config, job_runs
 (SPEC 9.4, 9.5). 금액은 정수(원) 또는 Numeric — float 금지."""
+
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String,
-    Text, UniqueConstraint, func, text,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -41,8 +54,11 @@ class PaperAccount(Base):
         CheckConstraint("initial_cash > 0", name="ck_paper_accounts_initial_cash"),
         # FR-PT-1 / FR-AI-1: 사용자당 (열린) USER 계좌 1개, AI 계좌 1개
         Index(
-            "uq_paper_accounts_open_per_user_type", "user_id", "type",
-            unique=True, postgresql_where=text("closed_at IS NULL"),
+            "uq_paper_accounts_open_per_user_type",
+            "user_id",
+            "type",
+            unique=True,
+            postgresql_where=text("closed_at IS NULL"),
         ),
     )
 
@@ -77,10 +93,13 @@ class Order(Base):
         CheckConstraint("side IN ('BUY','SELL')", name="ck_orders_side"),
         CheckConstraint("order_type IN ('MARKET','LIMIT')", name="ck_orders_order_type"),
         CheckConstraint(
-            "status IN ('PENDING','PARTIAL','FILLED','CANCELED','EXPIRED','REJECTED')", name="ck_orders_status"
+            "status IN ('PENDING','PARTIAL','FILLED','CANCELED','EXPIRED','REJECTED')",
+            name="ck_orders_status",
         ),
         CheckConstraint("source IN ('USER','AI')", name="ck_orders_source"),
-        CheckConstraint("filled_qty >= 0 AND (filled_qty = 0 OR filled_qty <= qty)", name="ck_orders_filled_qty"),
+        CheckConstraint(
+            "filled_qty >= 0 AND (filled_qty = 0 OR filled_qty <= qty)", name="ck_orders_filled_qty"
+        ),
         CheckConstraint("reserved_amount >= 0", name="ck_orders_reserved_amount"),
         Index("ix_orders_status_code", "status", "code"),
         Index("ix_orders_account_created", "account_id", "created_at"),

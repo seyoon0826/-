@@ -5,3 +5,6 @@ __pycache__/
 node_modules/
 data/
 ml/models/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts

@@ -1,8 +1,20 @@
 """stocks, prices_daily, index_daily, macro_daily, market_calendar (SPEC 9.1)"""
+
 from datetime import date, datetime
 
 from sqlalchemy import (
-    ARRAY, BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func, text,
+    ARRAY,
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 

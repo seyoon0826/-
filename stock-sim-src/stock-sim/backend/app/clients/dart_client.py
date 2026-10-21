@@ -1,6 +1,10 @@
 """DART 공시. 키: opendart.fss.or.kr"""
-import io, os, zipfile
+
+import io
+import os
 import xml.etree.ElementTree as ET
+import zipfile
+
 import requests
 
 BASE = "https://opendart.fss.or.kr/api"
@@ -23,10 +27,17 @@ def load_corp_codes() -> dict[str, str]:
 
 def disclosures(corp_code: str, start: str, end: str, page_count: int = 100) -> list[dict]:
     """공시 목록. start/end 는 'YYYYMMDD'."""
-    r = requests.get(f"{BASE}/list.json", params={
-        "crtfc_key": KEY, "corp_code": corp_code,
-        "bgn_de": start, "end_de": end, "page_count": page_count,
-    }, timeout=30)
+    r = requests.get(
+        f"{BASE}/list.json",
+        params={
+            "crtfc_key": KEY,
+            "corp_code": corp_code,
+            "bgn_de": start,
+            "end_de": end,
+            "page_count": page_count,
+        },
+        timeout=30,
+    )
     r.raise_for_status()
     data = r.json()
     if data.get("status") not in ("000", "013"):  # 013: 조회 결과 없음

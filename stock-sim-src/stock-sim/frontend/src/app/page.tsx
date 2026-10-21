@@ -1,1 +1,5 @@
-export default function Home() { return <main>StockSim</main>; }
+import { redirect } from "next/navigation";
+
+export default function Home() {
+  redirect("/predict");
+}

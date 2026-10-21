@@ -1,0 +1,320 @@
+:root {
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #f1f1ed;
+  --text: #1a1a18;
+  --text-2: #5f5e5a;
+  --text-3: #8a8983;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.22);
+  --up: #e24b4a;
+  --dn: #378add;
+  --hit: #1d9e75;
+  --accent: #185fa5;
+  --accent-bg: #e6f1fb;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111110;
+    --surface: #1b1b19;
+    --surface-2: #262624;
+    --text: #efeee9;
+    --text-2: #a9a8a1;
+    --text-3: #75746e;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-strong: rgba(255, 255, 255, 0.24);
+    --accent: #85b7eb;
+    --accent-bg: #0c447c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui,
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.up {
+  color: var(--up);
+}
+.dn {
+  color: var(--dn);
+}
+
+/* 레이아웃 */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface);
+  border-bottom: 0.5px solid var(--border);
+}
+.topbar-in {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 16px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.brand {
+  font-weight: 600;
+  font-size: 16px;
+  margin-right: 24px;
+}
+.nav a {
+  color: var(--text-2);
+  margin-right: 18px;
+  font-size: 14px;
+}
+.nav a:hover {
+  color: var(--text);
+}
+.page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 16px 16px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.disclaimer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--surface);
+  border-top: 0.5px solid var(--border);
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+/* 카드 */
+.panel {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.panel-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 10px;
+  gap: 8px;
+}
+.label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.value {
+  font-size: 14px;
+  font-weight: 500;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 0.5px solid var(--border-strong);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.chip-accent {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: transparent;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 0.5px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--surface-2);
+}
+
+/* 종목 헤더 */
+.stock-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.stock-price {
+  font-size: 26px;
+  font-weight: 600;
+}
+.stats {
+  display: flex;
+  gap: 20px;
+}
+
+/* 표 */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table th {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-2);
+  text-align: right;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.table th:first-child,
+.table td:first-child {
+  text-align: left;
+}
+.table td {
+  text-align: right;
+  padding: 11px 10px;
+  border-bottom: 0.5px solid var(--border);
+}
+.table tr:hover td {
+  background: var(--surface-2);
+}
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+}
+
+/* 근거 막대 (가운데 기준 좌우) */
+.factor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin: 7px 0;
+}
+.axis {
+  position: relative;
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 2px;
+}
+.axis > i {
+  position: absolute;
+  top: 0;
+  height: 8px;
+}
+.axis > b {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  width: 1px;
+  height: 12px;
+  background: var(--border-strong);
+}
+
+/* 예측 기록 */
+.record {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+}
+.record > span {
+  height: 16px;
+  border-radius: 3px;
+  border: 0.5px solid var(--border-strong);
+}
+.record > span.hit {
+  background: var(--hit);
+  border-color: var(--hit);
+}
+
+/* 시나리오 */
+.scn {
+  padding-top: 8px;
+  border-top: 2px solid var(--border-strong);
+}
+.scn.bull {
+  border-top-color: var(--up);
+}
+.scn.bear {
+  border-top-color: var(--dn);
+}
+.scn p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.news-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--border);
+}
+.news-item:last-child {
+  border-bottom: 0;
+}
+
+.skeleton {
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+
+@media (max-width: 720px) {
+  .grid-2,
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .stats {
+    gap: 14px;
+  }
+  .stock-price {
+    font-size: 22px;
+  }
+}

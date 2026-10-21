@@ -1,4 +1,5 @@
 """APScheduler 진입점. python -m app.pipelines.scheduler"""
+
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 sched = BlockingScheduler(timezone="Asia/Seoul")

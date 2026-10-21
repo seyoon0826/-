@@ -40,5 +40,17 @@ services:
     volumes: ["./backend:/app", "./ml/models:/models"]
     command: python -m app.pipelines.scheduler
 
+  marketdata:  # 반드시 단일 인스턴스 (KIS 웹소켓 세션 중복 방지, SPEC 4.1)
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://stock:stock@db:5432/stocksim
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+    volumes: ["./backend:/app"]
+    command: python -m app.services.market_data
+
 volumes:
   pgdata:

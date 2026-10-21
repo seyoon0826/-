@@ -1,5 +1,6 @@
 """Phase 1: 모델/마이그레이션 CRUD 와 제약 테스트 (SPEC 9장)."""
-from datetime import date, datetime, timezone
+
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
@@ -8,12 +9,27 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.db import Base
 from app.models import (
-    CashLedger, Disclosure, FeeConfig, JobRun, ModelMetric, News, NewsStockMap, Order, PaperAccount,
-    Position, Prediction, PredictionFactor, PredictionOutcome, PredictionScenario, PriceDaily, Stock,
-    Trade, User,
+    CashLedger,
+    Disclosure,
+    FeeConfig,
+    JobRun,
+    ModelMetric,
+    News,
+    NewsStockMap,
+    Order,
+    PaperAccount,
+    Position,
+    Prediction,
+    PredictionFactor,
+    PredictionOutcome,
+    PredictionScenario,
+    PriceDaily,
+    Stock,
+    Trade,
+    User,
 )
 
-NOW = datetime(2026, 10, 20, 15, 40, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 20, 15, 40, tzinfo=UTC)
 
 
 def _stock(db, code="005930"):
@@ -36,9 +52,18 @@ def _account(db, cash=10_000_000, type_="USER", email="a@example.com"):
 
 
 def _prediction(db, code="005930", **kw):
-    vals = dict(code=code, as_of_date=date(2026, 10, 20), horizon=5, close_at_asof=72100,
-                p_up=Decimal("0.58"), p_outperform=Decimal("0.53"), q10=Decimal("-0.021"),
-                q50=Decimal("0.009"), q90=Decimal("0.043"), model_version="lgbm-20261015-a1b2c3")
+    vals = dict(
+        code=code,
+        as_of_date=date(2026, 10, 20),
+        horizon=5,
+        close_at_asof=72100,
+        p_up=Decimal("0.58"),
+        p_outperform=Decimal("0.53"),
+        q10=Decimal("-0.021"),
+        q50=Decimal("0.009"),
+        q90=Decimal("0.043"),
+        model_version="lgbm-20261015-a1b2c3",
+    )
     vals.update(kw)
     p = Prediction(**vals)
     db.add(p)
@@ -48,26 +73,59 @@ def _prediction(db, code="005930", **kw):
 
 def test_all_spec_tables_exist(engine):
     expected = {
-        "stocks", "prices_daily", "index_daily", "macro_daily", "market_calendar", "news", "news_stock_map",
-        "news_analysis", "disclosures", "predictions", "prediction_factors", "prediction_news",
-        "prediction_scenarios", "prediction_outcomes", "model_metrics", "users", "paper_accounts", "orders",
-        "trades", "positions", "cash_ledger", "portfolio_snapshots", "fee_config", "job_runs",
+        "stocks",
+        "prices_daily",
+        "index_daily",
+        "macro_daily",
+        "market_calendar",
+        "news",
+        "news_stock_map",
+        "news_analysis",
+        "disclosures",
+        "predictions",
+        "prediction_factors",
+        "prediction_news",
+        "prediction_scenarios",
+        "prediction_outcomes",
+        "model_metrics",
+        "users",
+        "paper_accounts",
+        "orders",
+        "trades",
+        "positions",
+        "cash_ledger",
+        "portfolio_snapshots",
+        "fee_config",
+        "job_runs",
     }
     assert expected <= set(inspect(engine).get_table_names())
     assert expected <= set(Base.metadata.tables)
 
 
 def test_prices_daily_is_hypertable(db):
-    n = db.execute(text(
-        "SELECT count(*) FROM timescaledb_information.hypertables WHERE hypertable_name = 'prices_daily'"
-    )).scalar()
+    n = db.execute(
+        text(
+            "SELECT count(*) FROM timescaledb_information.hypertables WHERE hypertable_name = 'prices_daily'"
+        )
+    ).scalar()
     assert n == 1
 
 
 def test_stock_and_price_crud_and_unique(db):
     _stock(db)
-    db.add(PriceDaily(code="005930", date=date(2026, 10, 20), open=71000, high=72500, low=70800,
-                      close=72100, volume=1_000_000, foreign_net=5, inst_net=-3))
+    db.add(
+        PriceDaily(
+            code="005930",
+            date=date(2026, 10, 20),
+            open=71000,
+            high=72500,
+            low=70800,
+            close=72100,
+            volume=1_000_000,
+            foreign_net=5,
+            inst_net=-3,
+        )
+    )
     db.flush()
     got = db.get(PriceDaily, ("005930", date(2026, 10, 20)))
     assert got.close == 72100
@@ -75,8 +133,11 @@ def test_stock_and_price_crud_and_unique(db):
     assert db.get(Stock, "005930").active is True
 
     with pytest.raises(IntegrityError), db.begin_nested():  # FR-CL-1: (code, date) 중복 불가
-        db.execute(insert(PriceDaily).values(code="005930", date=date(2026, 10, 20), open=1, high=1, low=1,
-                                             close=1, volume=1))
+        db.execute(
+            insert(PriceDaily).values(
+                code="005930", date=date(2026, 10, 20), open=1, high=1, low=1, close=1, volume=1
+            )
+        )
 
 
 def test_news_url_unique_and_relevance_range(db):
@@ -96,7 +157,9 @@ def test_news_url_unique_and_relevance_range(db):
 
 def test_disclosure_crud(db):
     _stock(db)
-    db.add(Disclosure(rcept_no="20261020000001", code="005930", corp_code="00126380", title="공시", filed_at=NOW))
+    db.add(
+        Disclosure(rcept_no="20261020000001", code="005930", corp_code="00126380", title="공시", filed_at=NOW)
+    )
     db.flush()
     assert db.get(Disclosure, "20261020000001").corp_code == "00126380"
 
@@ -118,17 +181,40 @@ def test_prediction_quantiles_must_be_monotonic_fr_pr_3(db):
 def test_prediction_children_cascade(db):
     _stock(db)
     p = _prediction(db)
-    db.add_all([
-        PredictionFactor(prediction_id=p.id, rank=1, feature="ret_20d", value=Decimal("0.083"),
-                         shap_value=Decimal("0.03"), label="최근 20거래일 +8.3% 상승"),
-        PredictionScenario(prediction_id=p.id, summary="s", bull="b", base="m", bear="r", generated_by="llm"),
-        PredictionOutcome(prediction_id=p.id, target_date=date(2026, 10, 27), actual_return=Decimal("0.01"),
-                          hit_direction=True, in_range=True),
-    ])
+    db.add_all(
+        [
+            PredictionFactor(
+                prediction_id=p.id,
+                rank=1,
+                feature="ret_20d",
+                value=Decimal("0.083"),
+                shap_value=Decimal("0.03"),
+                label="최근 20거래일 +8.3% 상승",
+            ),
+            PredictionScenario(
+                prediction_id=p.id, summary="s", bull="b", base="m", bear="r", generated_by="llm"
+            ),
+            PredictionOutcome(
+                prediction_id=p.id,
+                target_date=date(2026, 10, 27),
+                actual_return=Decimal("0.01"),
+                hit_direction=True,
+                in_range=True,
+            ),
+        ]
+    )
     db.flush()
     with pytest.raises(IntegrityError), db.begin_nested():
-        db.add(PredictionScenario(prediction_id=_prediction(db, model_version="v2").id, summary="s", bull="b",
-                                  base="m", bear="r", generated_by="gpt"))
+        db.add(
+            PredictionScenario(
+                prediction_id=_prediction(db, model_version="v2").id,
+                summary="s",
+                bull="b",
+                base="m",
+                bear="r",
+                generated_by="gpt",
+            )
+        )
         db.flush()
     db.delete(p)
     db.flush()
@@ -136,8 +222,17 @@ def test_prediction_children_cascade(db):
 
 
 def test_model_metrics_window_is_quoted_reserved_word(db):
-    db.add(ModelMetric(model_version="v", scope="live", window="60", strategy="model", metric="brier",
-                       value=Decimal("0.24"), n=100))
+    db.add(
+        ModelMetric(
+            model_version="v",
+            scope="live",
+            window="60",
+            strategy="model",
+            metric="brier",
+            value=Decimal("0.24"),
+            n=100,
+        )
+    )
     db.flush()
     with pytest.raises(IntegrityError), db.begin_nested():
         db.add(ModelMetric(model_version="v", scope="live", window="7", strategy="model", metric="x", n=1))
@@ -174,8 +269,15 @@ def test_order_status_side_and_idempotency(db):
     acct = _account(db)
 
     def order(**kw):
-        vals = dict(account_id=acct.id, code="005930", side="BUY", order_type="LIMIT", qty=10,
-                    limit_price=70000, status="PENDING")
+        vals = dict(
+            account_id=acct.id,
+            code="005930",
+            side="BUY",
+            order_type="LIMIT",
+            qty=10,
+            limit_price=70000,
+            status="PENDING",
+        )
         vals.update(kw)
         o = Order(**vals)
         db.add(o)
@@ -205,8 +307,19 @@ def test_trade_event_seq_is_idempotency_key(db):
     db.flush()
 
     def trade(seq):
-        db.add(Trade(order_id=o.id, account_id=acct.id, code="005930", side="BUY", qty=5, price=70000,
-                     amount=350000, fee=52, event_seq=seq))
+        db.add(
+            Trade(
+                order_id=o.id,
+                account_id=acct.id,
+                code="005930",
+                side="BUY",
+                qty=5,
+                price=70000,
+                amount=350000,
+                fee=52,
+                event_seq=seq,
+            )
+        )
         db.flush()
 
     trade(1)
@@ -248,8 +361,14 @@ def test_cash_ledger_type_affects_consistency(db):
 def test_fee_config_has_no_seed_rows(db):
     """Q1 미결: 세율 시드는 오너 확인 전까지 비워 둔다."""
     assert db.scalar(select(text("count(*)")).select_from(FeeConfig)) == 0
-    db.add(FeeConfig(effective_from=date(2026, 1, 1), buy_fee_rate=Decimal("0.0001"),
-                     sell_fee_rate=Decimal("0.0001"), sell_tax_rate=Decimal("0.002")))
+    db.add(
+        FeeConfig(
+            effective_from=date(2026, 1, 1),
+            buy_fee_rate=Decimal("0.0001"),
+            sell_fee_rate=Decimal("0.0001"),
+            sell_tax_rate=Decimal("0.002"),
+        )
+    )
     db.flush()
     with pytest.raises(IntegrityError), db.begin_nested():
         db.add(FeeConfig(effective_from=date(2026, 1, 1), buy_fee_rate=0, sell_fee_rate=0, sell_tax_rate=0))
