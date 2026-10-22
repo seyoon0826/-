@@ -40,7 +40,10 @@ async def test_orderbook_roundtrip():
         "005930", (BookLevel(72_200, 10), BookLevel(72_300, 20)), (BookLevel(72_100, 5),), NOW, "kis"
     )
     await store.publish_orderbook(ob)
-    assert await store.get_orderbook("005930") == ob
+    got = await store.get_orderbook("005930")
+    assert got.seq == 1 and got == OrderBook(**{**ob.__dict__, "seq": 1})  # 발행 시 종목별 이벤트 번호 부여
+    await store.publish_orderbook(ob)
+    assert (await store.get_orderbook("005930")).seq == 2
     assert json.loads(await store.r.get("orderbook:005930"))["asks"][0] == [72_200, 10]
 
 

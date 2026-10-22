@@ -1,4 +1,4 @@
-"""WS /ws/quotes (실시간 시세, SPEC 11). WS /ws/paper 는 Phase 4 에서 추가한다."""
+"""WS /ws/quotes (실시간 시세), WS /ws/paper (체결 알림, 평가금액) — SPEC 11."""
 
 import asyncio
 import contextlib
@@ -7,8 +7,12 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.orm import Session
 
-from app.api.common import get_store
+from app.api.common import ApiError, get_store
+from app.api.deps import user_id_from_token
+from app.core.db import get_db
 from app.services.market_data import KST
 from app.services.market_hours import market_state
 from app.services.market_store import CH_ORDERBOOK, CH_QUOTE, QuoteStore, orderbook_to_dict, quote_to_dict
@@ -103,6 +107,89 @@ async def ws_quotes(ws: WebSocket, store: QuoteStore = Depends(get_store)):
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     except WebSocketDisconnect:
         pass
+    finally:
+        for t in tasks:
+            t.cancel()
+        for t in tasks:
+            with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect, RuntimeError):
+                await t
+
+
+PORTFOLIO_THROTTLE_SEC = 1.0  # 시세 변동 시 평가금액 푸시는 최대 1초 1회
+
+
+@router.websocket("/ws/paper")
+async def ws_paper(
+    ws: WebSocket,
+    token: str | None = None,
+    store: QuoteStore = Depends(get_store),
+    db: Session = Depends(get_db),
+):
+    """체결/주문 상태 이벤트(ch:paper:{account_id})와 평가금액을 푸시한다. 토큰은 쿼리(?token=)로 받는다."""
+    from app.services.paper import accounts as acc
+    from app.services.paper.events import channel
+
+    # 연결이 오래 살아 있으므로 DB 조회마다 트랜잭션을 바로 닫는다(rollback).
+    # 열어 두면 idle-in-transaction 으로
+    # 잠금을 쥐고 있어 다른 작업(DDL/TRUNCATE 등)을 막고, 체결 워커가 바꾼 최신 값도 못 본다.
+    try:
+        user_id = await run_in_threadpool(user_id_from_token, token, db)
+        user, _ = await run_in_threadpool(acc.open_accounts, db, user_id)
+        account_id = user.id if user else None  # rollback 이 객체를 만료시키기 전에 꺼내 둔다
+    except ApiError:
+        await ws.close(code=4401)
+        return
+    finally:
+        await run_in_threadpool(db.rollback)
+    if account_id is None:
+        await ws.close(code=4404)
+        return
+    await ws.accept()
+
+    async def portfolio_msg() -> dict:
+        """REST /paper/portfolio 와 같은 계산(실시간 시세 우선, 없으면 최근 종가)."""
+        from app.api.paper import _summary
+
+        try:
+            a = await run_in_threadpool(lambda: acc.open_accounts(db, user_id)[0])
+            if a is None:
+                return {"type": "portfolio", "total_value": None, "return_pct": None}
+            p = await _summary(db, store, a)
+            return {"type": "portfolio", "total_value": p["total_value"], "return_pct": p["return_pct"]}
+        finally:
+            await run_in_threadpool(db.rollback)
+
+    async def forwarder() -> None:
+        pubsub = store.r.pubsub()
+        await pubsub.subscribe(channel(account_id), CH_QUOTE)
+        last_push = 0.0
+        loop = asyncio.get_running_loop()
+        try:
+            async for m in pubsub.listen():
+                if m["type"] != "message":
+                    continue
+                if m["channel"] == CH_QUOTE:
+                    if loop.time() - last_push >= PORTFOLIO_THROTTLE_SEC:
+                        last_push = loop.time()
+                        await ws.send_json(await portfolio_msg())
+                    continue
+                await ws.send_json(json.loads(m["data"]))
+        finally:
+            await pubsub.aclose()
+
+    async def reader() -> None:
+        while True:
+            await ws.receive_text()  # 클라이언트 메시지는 쓰지 않는다(연결 유지 확인용)
+
+    async def pinger() -> None:
+        while True:
+            await asyncio.sleep(PING_SEC)
+            await ws.send_json({"type": "ping"})
+
+    await ws.send_json(await portfolio_msg())
+    tasks = [asyncio.create_task(c()) for c in (reader, forwarder, pinger)]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
         for t in tasks:
             t.cancel()

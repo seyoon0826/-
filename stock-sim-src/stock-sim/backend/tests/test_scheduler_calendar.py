@@ -64,11 +64,15 @@ def test_open_window_is_weekday_0830_to_1600():
 @pytest.mark.parametrize(
     "now,ago_min,due",
     [
-        (dt(10, 0), 2, False), (dt(10, 0), 5, True), (dt(10, 0), 6, True),   # 장중 5분
-        (dt(20, 0), 20, False), (dt(20, 0), 30, True), (dt(20, 0), 31, True),  # 장외 30분
+        (dt(10, 0), 2, False),
+        (dt(10, 0), 5, True),
+        (dt(10, 0), 6, True),  # 장중 5분
+        (dt(20, 0), 20, False),
+        (dt(20, 0), 30, True),
+        (dt(20, 0), 31, True),  # 장외 30분
         (dt(10, 0, day=24), 10, False),  # 주말은 장외 취급
     ],
-)  # fmt: skip
+)
 def test_is_due_news_intervals(now, ago_min, due):
     assert scheduler.is_due(now, now - timedelta(minutes=ago_min), 5, 30) is due
 
@@ -137,7 +141,19 @@ def test_post_close_runs_universe_only_on_first_trading_day(sf, monkeypatch):
 def test_build_scheduler_registers_spec_jobs(sf):
     sched = scheduler.build_scheduler(sf)
     jobs = {j.id: j for j in sched.get_jobs()}
-    assert set(jobs) == {"post_close", "macro", "news", "disclosures", "weekly"}
+    assert set(jobs) == {
+        "post_close",
+        "macro",
+        "news",
+        "disclosures",
+        "weekly",
+        "paper_open",
+        "paper_expire",
+        "paper_snapshot",
+    }
+    for jid, (h, m) in {"paper_open": (9, 0), "paper_expire": (15, 30), "paper_snapshot": (16, 30)}.items():
+        f = {x.name: str(x) for x in jobs[jid].trigger.fields}
+        assert (f["day_of_week"], f["hour"], f["minute"]) == ("mon-fri", str(h), str(m))  # SPEC 12
     assert str(sched.timezone) == "Asia/Seoul"
     fields = lambda j: {f.name: str(f) for f in j.trigger.fields}  # noqa: E731
     pc = fields(jobs["post_close"])
@@ -153,14 +169,14 @@ def test_build_scheduler_registers_spec_jobs(sf):
 @pytest.mark.parametrize(
     "d,is_open",
     [
-        (date(2026, 10, 22), True),   # 평일
+        (date(2026, 10, 22), True),  # 평일
         (date(2026, 12, 25), False),  # 성탄절
         (date(2026, 12, 31), False),  # 연말 휴장
-        (date(2027, 2, 8), False),    # 설 연휴
-        (date(2026, 5, 1), False),    # 근로자의날
+        (date(2027, 2, 8), False),  # 설 연휴
+        (date(2026, 5, 1), False),  # 근로자의날
         (date(2026, 10, 24), False),  # 토요일
     ],
-)  # fmt: skip
+)
 def test_future_days_without_calendar_rows_use_krx_holidays(sf, d, is_open):
     assert market_calendar.is_trading_day(d, sf) is is_open
 

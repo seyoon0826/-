@@ -70,12 +70,16 @@ class Order(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()")
     )
     account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"))
-    code: Mapped[str] = mapped_column(ForeignKey("stocks.code"))
+    # 외래키 없음: 유니버스에 없는 종목 주문도 UNKNOWN_SYMBOL 로 거부해 저장해야 한다 (SPEC 7.2)
+    code: Mapped[str] = mapped_column(String(6))
     side: Mapped[str] = mapped_column(String(4))  # BUY | SELL
     order_type: Mapped[str] = mapped_column(String(6))  # MARKET | LIMIT
     qty: Mapped[int] = mapped_column(Integer)  # 검증 실패(INVALID_QTY) 주문도 저장하므로 양수 CHECK 없음
     filled_qty: Mapped[int] = mapped_column(Integer, server_default="0")
     limit_price: Mapped[int | None] = mapped_column(Integer)
+    # 예약 기준가: 지정가 매수=지정가, 시장가 매수=주문 시점 상한가.
+    # 부분 체결 때 남은 수량의 예약금을 다시 계산하는 데 쓴다.
+    reserve_price: Mapped[int | None] = mapped_column(Integer)
     reserved_amount: Mapped[int] = mapped_column(BigInteger, server_default="0")
     status: Mapped[str] = mapped_column(String(10))
     reject_reason: Mapped[str | None] = mapped_column(String(32))
@@ -186,15 +190,16 @@ class PortfolioSnapshot(Base):
 
 
 class FeeConfig(Base):
-    """수수료/세율. 하드코딩 금지 — 시드 값은 오너 확인 전까지 비워 둔다 (SPEC Q1)."""
+    """수수료/세율. 하드코딩 금지 — 체결일 기준 유효한 행을 쓴다 (SPEC 7.5). 시드는 마이그레이션 0002."""
 
     __tablename__ = "fee_config"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     effective_from: Mapped[date] = mapped_column(Date, unique=True)
-    buy_fee_rate: Mapped[Decimal] = mapped_column(Numeric(12, 8))
-    sell_fee_rate: Mapped[Decimal] = mapped_column(Numeric(12, 8))
-    sell_tax_rate: Mapped[Decimal] = mapped_column(Numeric(12, 8))
+    # 소수 10자리: 실제 수수료율(0.0176923% = 0.000176923)을 손실 없이 저장
+    buy_fee_rate: Mapped[Decimal] = mapped_column(Numeric(14, 10))
+    sell_fee_rate: Mapped[Decimal] = mapped_column(Numeric(14, 10))
+    sell_tax_rate: Mapped[Decimal] = mapped_column(Numeric(14, 10))
     note: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (

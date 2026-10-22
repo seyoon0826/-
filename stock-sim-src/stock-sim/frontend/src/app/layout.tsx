@@ -22,7 +22,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <Link href="/paper">모의투자</Link>
               <Link href="/performance">성적표</Link>
             </nav>
-            <span className="chip chip-accent">디자인 시안 · 모의 데이터</span>
           </div>
         </header>
         <main className="page">{children}</main>

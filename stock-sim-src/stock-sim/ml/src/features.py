@@ -1,16 +1,286 @@
 """피처 생성 (SPEC 8.2). 학습(ml/)과 서빙(backend/app/ml/)이 이 모듈 하나를 공유한다.
 
-TODO(Phase 5): 아래 결측 처리 규칙을 구현한다.
+누수 방지 (SPEC 8.1)
+- 기준일 t 의 피처는 t 종가까지의 데이터만 쓴다: 모든 시계열 계산은 과거 방향(rolling/shift(+k))이고,
+  같은 날짜의 종목 간 비교(거래대금 순위)만 단면으로 한다. 미래 방향 shift 는 build_targets() 에만 있다.
+- 정규화/스케일링을 하지 않는다(모든 피처가 비율·순위라 단위가 없다). 학습 구간 밖 통계를 쓸 일이 없다.
+- 뉴스/공시: published_at 이 거래일 15:30 이전이면 그날, 이후(또는 휴장일)면 다음 거래일 피처
+  (news_feature_date).
 
 수급(외국인/기관 순매수) 결측 규칙 — prices_daily 저장 규칙과 짝을 이룬다
-- 저장 단계(collect_prices.upsert_prices)
-  - 거래정지일(volume == 0): 순매수 0 으로 저장된다 (거래가 없으니 실제로 0원).
-  - 거래가 있었는데 값이 빈 날: NULL 로 저장된다 (진짜 결측).
-- 피처 단계(이 모듈)
-  - 거래정지 신호는 순매수 0 과 섞이지 않도록 따로 준다: halted_20d = 최근 20거래일 중 volume == 0 인 날 수.
-  - foreign_net_{1,5,20}d / inst_net_{1,5,20}d (금액/시총): 있는 날만 합한 뒤 창 길이 / 유효 일수로 비율 보정.
-    예) 5일 창에서 4일만 있으면 4일 합 x 5/4.
-  - flow_coverage_{5,20}d = 유효 일수 / 창 길이 를 함께 넣어 보정값이 일부 추정임을 모델이 알게 한다.
-  - 창 안의 값이 전부 NULL 이면 NaN 으로 둔다 (LightGBM 이 결측 방향을 학습).
-  - 모든 계산은 기준일 t 까지의 데이터만 쓴다 (SPEC 8.1 누수 금지).
+- 저장: 거래정지일(volume == 0)은 순매수 0, 거래가 있었는데 값이 빈 날은 NULL(진짜 결측).
+- 피처: 거래정지 신호는 halted_20d(최근 20거래일 중 거래량 0 인 날 수)로 따로 준다.
+  foreign/inst_net_{1,5,20}d(금액/시총)는 있는 날만 합한 뒤 창 길이/유효 일수로 비율 보정하고,
+  flow_coverage_{5,20}d(유효 일수/창 길이)를 함께 넣는다.
+  창 안이 전부 NULL 이면 NaN 으로 둔다 (LightGBM 이 결측 방향을 학습).
 """
+
+from __future__ import annotations
+
+from bisect import bisect_right
+from collections.abc import Sequence
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
+
+KST = ZoneInfo("Asia/Seoul")
+MARKET_CLOSE = time(15, 30)
+HORIZON = 5  # 예측 기간(거래일), v1 고정
+
+PRICE_COLUMNS = [
+    "code",
+    "date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "value",
+    "foreign_net",
+    "inst_net",
+    "market_cap",
+]
+
+# 순서가 곧 모델 입력 순서다. 바꾸면 features.json 과 달라져 서버가 기동을 거부한다 (SPEC 8.4).
+FEATURES: list[str] = [
+    # 수익률
+    "ret_1d",
+    "ret_5d",
+    "ret_20d",
+    "ret_60d",
+    # 추세
+    "ma5_gap",
+    "ma20_gap",
+    "ma60_gap",
+    "ma20_slope",
+    # 모멘텀/과열
+    "rsi_14",
+    "high52_pos",
+    # 변동성
+    "vol_20d",
+    "atr14_ratio",
+    # 거래량
+    "vol_ratio_20d",
+    "value_rank",
+    # 수급 (금액/시총, 결측 비율 보정) + 커버리지 + 거래정지
+    "foreign_net_1d",
+    "foreign_net_5d",
+    "foreign_net_20d",
+    "inst_net_1d",
+    "inst_net_5d",
+    "inst_net_20d",
+    "flow_coverage_5d",
+    "flow_coverage_20d",
+    "halted_20d",
+    # 시장
+    "kospi_ret_5d",
+    "kospi_ret_20d",
+    "kospi_vol_20d",
+    "usdkrw_chg_5d",
+    "base_rate",
+    # 상대
+    "rel_ret_20d",
+]
+
+
+# ---------------------------------------------------------------- 사람이 읽는 근거 문장 (FR-PR-6)
+def _pct(v: float, digits: int = 1) -> str:
+    return f"{v * 100:+.{digits}f}%"
+
+
+def _updown(v: float, up: str = "상승", down: str = "하락") -> str:
+    return up if v >= 0 else down
+
+
+FEATURE_LABELS: dict[str, str] = {
+    "ret_1d": "최근 1거래일 {pct} {updown}",
+    "ret_5d": "최근 5거래일 {pct} {updown}",
+    "ret_20d": "최근 20거래일 {pct} {updown}",
+    "ret_60d": "최근 60거래일 {pct} {updown}",
+    "ma5_gap": "5일 이동평균 대비 {pct} {above}",
+    "ma20_gap": "20일 이동평균 대비 {pct} {above}",
+    "ma60_gap": "60일 이동평균 대비 {pct} {above}",
+    "ma20_slope": "20일 이동평균이 5거래일간 {pct} {updown} 추세",
+    "rsi_14": "RSI(14) {num0}, {rsi_zone}",
+    "high52_pos": "52주 최고가의 {ratio0} 수준",
+    "vol_20d": "최근 20일 일간 변동성 {ratio1}",
+    "atr14_ratio": "평균 진폭(ATR14)이 종가의 {ratio1}",
+    "vol_ratio_20d": "거래량이 20일 평균의 {num1}배",
+    "value_rank": "거래대금 순위 백분위 {ratio0}",
+    "foreign_net_1d": "전일 외국인 {buysell} (시총 대비 {pct2})",
+    "foreign_net_5d": "최근 5일 외국인 {buysell} (시총 대비 {pct2})",
+    "foreign_net_20d": "최근 20일 외국인 {buysell} (시총 대비 {pct2})",
+    "inst_net_1d": "전일 기관 {buysell} (시총 대비 {pct2})",
+    "inst_net_5d": "최근 5일 기관 {buysell} (시총 대비 {pct2})",
+    "inst_net_20d": "최근 20일 기관 {buysell} (시총 대비 {pct2})",
+    "flow_coverage_5d": "최근 5일 수급 데이터 확보율 {ratio0}",
+    "flow_coverage_20d": "최근 20일 수급 데이터 확보율 {ratio0}",
+    "halted_20d": "최근 20거래일 중 거래정지 {num0}일",
+    "kospi_ret_5d": "KOSPI 최근 5거래일 {pct} {updown}",
+    "kospi_ret_20d": "KOSPI 최근 20거래일 {pct} {updown}",
+    "kospi_vol_20d": "KOSPI 20일 변동성 {ratio1}",
+    "usdkrw_chg_5d": "원/달러 환율 5거래일 {pct} {updown}",
+    "base_rate": "기준금리 {num2}%",
+    "rel_ret_20d": "최근 20거래일 KOSPI 대비 {pctp}",
+}
+
+
+def label_for(feature: str, value: float | None) -> str:
+    """피처 값 -> 근거 문장. 예: ret_20d=0.083 -> '최근 20거래일 +8.3% 상승'."""
+    template = FEATURE_LABELS.get(feature, feature + " {num2}")
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return template.split(" {")[0] + " (데이터 없음)"
+    v = float(value)
+    rsi_zone = "과열 구간" if v >= 70 else ("침체 구간" if v <= 30 else "중립 구간")
+    return template.format(
+        pct=_pct(v),
+        pct2=_pct(v, 2),
+        pctp=f"{v * 100:+.1f}%p",
+        updown=_updown(v),
+        above=_updown(v, "위", "아래"),
+        buysell=_updown(v, "순매수", "순매도"),
+        rsi_zone=rsi_zone,
+        ratio0=f"{v * 100:.0f}%",
+        ratio1=f"{v * 100:.1f}%",
+        num0=f"{v:.0f}",
+        num1=f"{v:.1f}",
+        num2=f"{v:.2f}",
+    )
+
+
+# ---------------------------------------------------------------- 뉴스 시점 정렬 (SPEC 8.1)
+def news_feature_date(published_at: datetime, trading_days: Sequence[date]) -> date | None:
+    """기사가 반영될 거래일. 거래일 15:30 이전 발행이면 그날, 이후(또는 휴장일)면 다음 거래일.
+    trading_days 는 오름차순 거래일 목록. 다음 거래일이 목록에 없으면 None."""
+    local = published_at.astimezone(KST)
+    d = local.date()
+    days = list(trading_days)
+    i = bisect_right(days, d)  # d 보다 큰 첫 거래일 위치
+    if i > 0 and days[i - 1] == d and local.time() < MARKET_CLOSE:
+        return d
+    return days[i] if i < len(days) else None
+
+
+# ---------------------------------------------------------------- 피처
+def _rsi(close: pd.Series, n: int = 14) -> pd.Series:
+    delta = close.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+    rs = gain / loss.replace(0, np.nan)
+    rsi = 100 - 100 / (1 + rs)
+    return rsi.where(loss != 0, 100.0).where(gain.notna())
+
+
+def _per_code(g: pd.DataFrame) -> pd.DataFrame:
+    g = g.sort_values("date")
+    c, h, lo, v = g["close"], g["high"], g["low"], g["volume"]
+    out = pd.DataFrame(index=g.index)
+    for n in (1, 5, 20, 60):
+        out[f"ret_{n}d"] = c / c.shift(n) - 1
+    mas = {n: c.rolling(n, min_periods=n).mean() for n in (5, 20, 60)}
+    for n, ma in mas.items():
+        out[f"ma{n}_gap"] = c / ma - 1
+    out["ma20_slope"] = mas[20] / mas[20].shift(5) - 1
+    out["rsi_14"] = _rsi(c)
+    out["high52_pos"] = c / h.rolling(252, min_periods=60).max()
+    r1 = c.pct_change()
+    out["vol_20d"] = r1.rolling(20, min_periods=20).std()
+    prev = c.shift(1)
+    tr = pd.concat([h - lo, (h - prev).abs(), (lo - prev).abs()], axis=1).max(axis=1)
+    out["atr14_ratio"] = tr.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean() / c
+    out["vol_ratio_20d"] = (v / v.rolling(20, min_periods=20).mean()).replace([np.inf, -np.inf], np.nan)
+    cap = g["market_cap"].where(g["market_cap"] > 0)
+    for col in ("foreign_net", "inst_net"):
+        x = g[col].astype(float)
+        for w in (1, 5, 20):
+            s = x.rolling(w, min_periods=1).sum()
+            n_valid = x.rolling(w, min_periods=1).count()
+            scaled = (s * w / n_valid).where(n_valid > 0)  # 결측일 비율 보정
+            out[f"{col}_{w}d"] = scaled / cap
+    fx = g["foreign_net"].astype(float)
+    for w in (5, 20):
+        out[f"flow_coverage_{w}d"] = fx.rolling(w, min_periods=1).count() / w
+    out["halted_20d"] = (v == 0).astype(float).rolling(20, min_periods=1).sum()
+    return out
+
+
+def _market_features(
+    index: pd.DataFrame | None, macro: pd.DataFrame | None, dates: pd.Series
+) -> pd.DataFrame:
+    """날짜별 시장 피처. index: (date, close) KOSPI, macro: (series, date, value)."""
+    cal = pd.DataFrame({"date": sorted(pd.unique(dates))})
+    if index is not None and len(index):
+        k = (
+            index[["date", "close"]]
+            .sort_values("date")
+            .drop_duplicates("date")
+            .set_index("date")["close"]
+            .astype(float)
+        )
+        mk = pd.DataFrame(
+            {
+                "kospi_ret_5d": k / k.shift(5) - 1,
+                "kospi_ret_20d": k / k.shift(20) - 1,
+                "kospi_vol_20d": k.pct_change().rolling(20, min_periods=20).std(),
+            }
+        )
+        cal = cal.merge(mk.reset_index(), on="date", how="left")
+    for col in ("kospi_ret_5d", "kospi_ret_20d", "kospi_vol_20d"):
+        if col not in cal:
+            cal[col] = np.nan
+    for series, col in (("usdkrw", "usdkrw"), ("base_rate", "base_rate")):
+        cal[col] = np.nan
+        if macro is not None and len(macro):
+            m = macro[macro["series"] == series][["date", "value"]].sort_values("date")
+            if len(m):
+                # 기준일 이전(같은 날 포함) 마지막 발표값 (as-of 정렬, 미래값 사용 금지)
+                aligned = pd.merge_asof(
+                    cal[["date"]],
+                    m.rename(columns={"value": col}).astype({col: float}),
+                    on="date",
+                    direction="backward",
+                )
+                cal[col] = aligned[col].to_numpy()
+    cal["usdkrw_chg_5d"] = cal["usdkrw"] / cal["usdkrw"].shift(5) - 1
+    return cal.drop(columns=["usdkrw"])
+
+
+def build_features(
+    prices: pd.DataFrame, index: pd.DataFrame | None = None, macro: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """prices(PRICE_COLUMNS) -> [code, date, close] + FEATURES. 날짜는 datetime64 로 맞춘다."""
+    p = prices.copy()
+    p["date"] = pd.to_datetime(p["date"])
+    for col in ("open", "high", "low", "close", "volume", "value", "foreign_net", "inst_net", "market_cap"):
+        p[col] = pd.to_numeric(p[col], errors="coerce").astype(float)
+    p = p.sort_values(["code", "date"]).reset_index(drop=True)
+    feats = p.groupby("code", group_keys=False)[p.columns].apply(_per_code)
+    out = pd.concat([p[["code", "date", "close"]], feats], axis=1)
+    out["value_rank"] = p.groupby("date")["value"].rank(pct=True)  # 같은 날 종목 간 거래대금 순위
+    idx = index.assign(date=pd.to_datetime(index["date"])) if index is not None else None
+    mac = macro.assign(date=pd.to_datetime(macro["date"])) if macro is not None else None
+    mkt = _market_features(idx, mac, out["date"])
+    out = out.merge(mkt, on="date", how="left")
+    out["rel_ret_20d"] = out["ret_20d"] - out["kospi_ret_20d"]
+    return out[["code", "date", "close", *FEATURES]]
+
+
+def build_targets(prices: pd.DataFrame, index: pd.DataFrame | None, horizon: int = HORIZON) -> pd.DataFrame:
+    """학습용 타깃 (SPEC 8.3). 이 함수만 미래(t+h)를 본다 — 피처에는 절대 쓰지 않는다.
+    ret_fwd: close[t+h]/close[t]-1, y_up = 1[ret_fwd > 0], y_out = 1[ret_fwd - kospi_fwd > 0]."""
+    p = prices[["code", "date", "close"]].copy()
+    p["date"] = pd.to_datetime(p["date"])
+    p = p.sort_values(["code", "date"])
+    p["ret_fwd"] = p.groupby("code")["close"].shift(-horizon) / p["close"] - 1
+    if index is not None and len(index):
+        k = index[["date", "close"]].assign(date=lambda d: pd.to_datetime(d["date"])).sort_values("date")
+        k["kospi_fwd"] = k["close"].astype(float).shift(-horizon) / k["close"].astype(float) - 1
+        p = p.merge(k[["date", "kospi_fwd"]], on="date", how="left")
+    else:
+        p["kospi_fwd"] = np.nan
+    p["y_up"] = (p["ret_fwd"] > 0).astype(float).where(p["ret_fwd"].notna())
+    excess = p["ret_fwd"] - p["kospi_fwd"]
+    p["y_out"] = (excess > 0).astype(float).where(excess.notna())
+    return p[["code", "date", "ret_fwd", "kospi_fwd", "y_up", "y_out"]]

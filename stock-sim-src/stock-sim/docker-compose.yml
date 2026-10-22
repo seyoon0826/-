@@ -22,11 +22,12 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://stock:stock@db:5432/stocksim
       REDIS_URL: redis://redis:6379/0
+      MODEL_DIR: /ml/models
     ports: ["8000:8000"]
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_started }
-    volumes: ["./backend:/app", "./ml/models:/models"]
+    volumes: ["./backend:/app", "./ml:/ml"]  # ml/src(피처 공유) + ml/models(산출물)
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   scheduler:
@@ -37,7 +38,7 @@ services:
       REDIS_URL: redis://redis:6379/0
     depends_on:
       db: { condition: service_healthy }
-    volumes: ["./backend:/app", "./ml/models:/models"]
+    volumes: ["./backend:/app", "./ml:/ml"]  # ml/src(피처 공유) + ml/models(산출물)
     command: python -m app.pipelines.scheduler
 
   marketdata:  # 반드시 단일 인스턴스 (KIS 웹소켓 세션 중복 방지, SPEC 4.1)

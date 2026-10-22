@@ -54,6 +54,7 @@ class OrderBook:
     bids: tuple[BookLevel, ...]  # 매수 1~10호가: 가격 내림차순 (1호가가 가장 높음)
     ts: datetime
     source: str
+    seq: int = 0  # 호가 이벤트 번호(종목별 단조 증가). Redis 발행 시 부여. 체결 멱등 키에 쓴다 (SPEC 7.9)
 
 
 QuoteCallback = Callable[[Quote], Awaitable[None]]
@@ -173,13 +174,25 @@ def main() -> None:  # pragma: no cover (프로세스 진입점)
     load_dotenv("../.env")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
+    from app.core.db import SessionLocal
     from app.services.market_store import QuoteStore
+    from app.services.paper.worker import run_worker
 
     codes = active_codes()
     if not codes:
         log.warning("활성 종목이 없습니다. 먼저 stocks 를 적재하세요 (Phase 3).")
-    service = MarketDataService(build_provider(), QuoteStore.from_url(settings.redis_url))
-    asyncio.run(run_forever(service, codes))
+    store = QuoteStore.from_url(settings.redis_url)
+    service = MarketDataService(build_provider(), store)
+
+    async def both() -> None:
+        # SPEC 4.1: marketdata 프로세스가 시세 배포와 체결 엔진 트리거(워커)를 함께 맡는다 (단일 인스턴스)
+        worker = asyncio.create_task(run_worker(QuoteStore.from_url(settings.redis_url), SessionLocal))
+        try:
+            await run_forever(service, codes)
+        finally:
+            worker.cancel()
+
+    asyncio.run(both())
 
 
 if __name__ == "__main__":  # pragma: no cover

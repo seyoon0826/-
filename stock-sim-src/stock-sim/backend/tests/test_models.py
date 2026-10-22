@@ -358,18 +358,11 @@ def test_cash_ledger_type_affects_consistency(db):
         row("BONUS", "cash")
 
 
-def test_fee_config_has_no_seed_rows(db):
-    """Q1 미결: 세율 시드는 오너 확인 전까지 비워 둔다."""
-    assert db.scalar(select(text("count(*)")).select_from(FeeConfig)) == 0
-    db.add(
-        FeeConfig(
-            effective_from=date(2026, 1, 1),
-            buy_fee_rate=Decimal("0.0001"),
-            sell_fee_rate=Decimal("0.0001"),
-            sell_tax_rate=Decimal("0.002"),
-        )
-    )
-    db.flush()
+def test_fee_config_seed_is_real_2026_rates(db):
+    """오너 결정(실제 요율): 수수료 0.0176923%(뱅키스 0.0140527% + 제비용 0.0036396%), 거래세 0.20%."""
+    row = db.scalars(select(FeeConfig).where(FeeConfig.effective_from == date(2026, 1, 1))).one()
+    assert row.buy_fee_rate == row.sell_fee_rate == Decimal("0.000176923")  # 소수 9자리 손실 없음
+    assert row.sell_tax_rate == Decimal("0.002")
     with pytest.raises(IntegrityError), db.begin_nested():
         db.add(FeeConfig(effective_from=date(2026, 1, 1), buy_fee_rate=0, sell_fee_rate=0, sell_tax_rate=0))
         db.flush()

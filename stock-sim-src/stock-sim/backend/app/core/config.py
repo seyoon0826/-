@@ -33,5 +33,21 @@ class Settings(BaseSettings):
     disclosure_interval_closed_min: int = 60
     cache_dir: str = ".cache"  # DART corp_code 등 주 1회 갱신 캐시
 
+    # 모의투자 (SPEC 7, 15)
+    paper_ignore_market_hours: bool = False  # 개발용: 장 시간 무시
+    paper_max_order_qty: int = 100_000
+    paper_initial_cash_options: tuple[int, ...] = (10_000_000, 30_000_000, 50_000_000, 100_000_000)
+
+    # 인증 (SPEC 6.8). 로그인/가입 API 는 Phase 8, 토큰 검증은 모의투자 API 보호를 위해 지금 둔다.
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+    access_token_minutes: int = 30
+
+    # 예측 모델 (SPEC 8.4, 15). MODEL_VERSION 이 비어 있으면 모델 없이 기동한다(예측 API 는 Phase 6).
+    model_version: str = ""
+    model_dir: str = "../ml/models"
+    # 시나리오 생성 LLM (SPEC 6.4, Q4). 모델명·예산은 오너 결정 사항 — 키가 없거나 비우면 템플릿 문장.
+    llm_model: str = "claude-opus-5-5"
+
 
 settings = Settings()

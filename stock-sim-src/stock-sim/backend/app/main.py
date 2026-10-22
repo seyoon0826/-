@@ -2,15 +2,31 @@ from dotenv import load_dotenv
 
 load_dotenv("../.env")  # app/clients 가 os.getenv 로 키를 읽으므로 먼저 로드
 
+from contextlib import asynccontextmanager  # noqa: E402
+
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from app.api import paper, performance, predictions, stocks, ws  # noqa: E402
 from app.api.common import ApiError, api_error_handler  # noqa: E402
+from app.core.config import settings  # noqa: E402
 
 API_PREFIX = "/api/v1"
 
-app = FastAPI(title="StockSim API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """MODEL_VERSION 이 설정돼 있으면 모델을 로드한다.
+    features.json 이 서빙 피처와 다르면 기동 실패 (SPEC 8.4)."""
+    app.state.model = None
+    if settings.model_version:
+        from app.ml.infer import ModelBundle
+
+        app.state.model = ModelBundle.load(settings.model_dir, settings.model_version)
+    yield
+
+
+app = FastAPI(title="StockSim API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"], allow_headers=["*"]
 )

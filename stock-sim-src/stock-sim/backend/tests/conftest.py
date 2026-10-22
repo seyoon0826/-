@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.core.db import Base
+from app.ml.features import ML_ROOT  # noqa: F401  (ml/ 을 sys.path 에 넣어 `src` 패키지를 쓸 수 있게 한다)
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -65,8 +66,10 @@ def db(engine):
 
 @pytest.fixture
 def sf(engine):
-    """파이프라인 테스트용 세션 팩토리. 실제로 커밋하므로 테스트 전후로 모든 테이블을 비운다."""
-    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+    """파이프라인 테스트용 세션 팩토리. 실제로 커밋하므로 테스트 전후로 테이블을 비운다.
+    fee_config 는 마이그레이션이 넣은 기준 데이터(실제 요율)라 비우지 않는다."""
+    keep = {"fee_config"}
+    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables if t.name not in keep)
 
     def wipe():
         with engine.begin() as c:

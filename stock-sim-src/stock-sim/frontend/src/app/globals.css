@@ -318,3 +318,12 @@ a {
     font-size: 22px;
   }
 }
+
+.chip-live {
+  background: rgba(29, 158, 117, 0.12);
+  color: var(--hit);
+  border-color: transparent;
+}
+.chip-live::before {
+  content: "● ";
+}

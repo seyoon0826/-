@@ -13,6 +13,10 @@ backfill:
 	cd backend && ../$(PY) -m app.pipelines.backfill
 scheduler:
 	cd backend && ../$(PY) -m app.pipelines.scheduler
+export-data:
+	$(PY) scripts/export_training_data.py
+train:
+	cd ml && ../$(PY) -m src.train_lgbm --data-dir ../data --out models
 collect:
 	$(PY) scripts/collect_prices.py
 apitest:

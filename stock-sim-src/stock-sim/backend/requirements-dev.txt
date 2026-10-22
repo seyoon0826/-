@@ -2,3 +2,6 @@
 ruff
 black
 fakeredis
+mypy
+pytest-cov
+pytest-timeout

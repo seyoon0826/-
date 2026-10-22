@@ -149,6 +149,7 @@ def test_missing_corp_code_and_api_error_are_isolated(sf, stocks):
 
     res = cd.run(list_fn=list_fn, end=END, session_factory=sf, corp_map={"005930": "00126380"})
     assert sorted(res.failed) == ["000660: corp_code 없음", "005930: RuntimeError"] and res.ok == 0
-    res = cd.run(list_fn=lambda *a: [dart_item("2")], end=END, session_factory=sf,
-                 corp_map={"005930": "00126380"})  # fmt: skip
+    res = cd.run(
+        list_fn=lambda *a: [dart_item("2")], end=END, session_factory=sf, corp_map={"005930": "00126380"}
+    )
     assert res.ok == 1 and res.failed == ["000660: corp_code 없음"]

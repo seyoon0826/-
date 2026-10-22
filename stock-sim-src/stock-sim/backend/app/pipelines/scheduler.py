@@ -1,13 +1,13 @@
 """APScheduler 진입점. python -m app.pipelines.scheduler  (SPEC 12)
 
 | 시각 (KST, 거래일)       | 작업                                                              |
-| 평일 15:40               | (매월 첫 거래일이면 유니버스 재선정) -> 가격/수급/지수 수집        |
+| 평일 15:40               | (첫 거래일이면 유니버스 재선정) -> 가격/수급/지수 -> 예측 배치     |
 | 평일 16:10               | ECOS 거시 지표                                                    |
+| 평일 09:00 / 15:30 / 16:30 | 모의투자: 대기 주문 처리 / 미체결 만료 / 포트폴리오 스냅샷 (거래일만) |
 | 뉴스: 장중 5분 / 장외 30분 | 5분마다 깨어나 마지막 실행 시각으로 실행 여부 판단                 |
 | 공시: 장중 10분 / 장외 60분 | 10분마다 깨어나 같은 방식으로 판단                                |
 | 매주 일 03:00            | DART corp_code 갱신, market_calendar 갱신                         |
 시작 시 한 번 catch_up() 으로 누락분을 채운다 (모든 수집은 증분/멱등이라 안전하다).
-예측 일일 배치(daily_batch)는 Phase 6 에서 15:40 작업 뒤에 이어 붙인다.
 """
 
 from __future__ import annotations
@@ -21,7 +21,15 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.pipelines import collect_disclosures, collect_macro, collect_news, collect_prices, market_calendar
+from app.pipelines import (
+    collect_disclosures,
+    collect_macro,
+    collect_news,
+    collect_prices,
+    daily_batch,
+    market_calendar,
+    paper_jobs,
+)
 from app.pipelines.common import SessionFactory, last_started_at
 from app.services.market_data import KST
 
@@ -69,6 +77,8 @@ def post_close(session_factory: SessionFactory = SessionLocal, today: date | Non
             "select_universe", lambda: collect_prices.select_universe(today, session_factory=session_factory)
         )
     _guarded("collect_prices", lambda: collect_prices.run(session_factory=session_factory))
+    # 가격 수집 뒤 예측 배치 (SPEC 12 15:40). 모델이 설정돼 있지 않으면 건너뛴다
+    _guarded("daily_batch", lambda: daily_batch.run(session_factory))
 
 
 def macro_job(session_factory: SessionFactory = SessionLocal) -> None:
@@ -110,7 +120,7 @@ def weekly_job(session_factory: SessionFactory = SessionLocal, today: date | Non
 
 
 def catch_up(session_factory: SessionFactory = SessionLocal) -> None:
-    """시작 시 누락분 보충: 캘린더 -> (유니버스) -> 가격 -> 거시 -> 공시 -> 뉴스."""
+    """시작 시 누락분 보충: 캘린더 -> 가격 -> 지난 장 미체결 만료 -> 거시 -> 공시 -> 뉴스."""
     today = datetime.now(KST).date()
     if market_calendar.known_dates(session_factory) == 0:
         _guarded(
@@ -118,9 +128,30 @@ def catch_up(session_factory: SessionFactory = SessionLocal) -> None:
             lambda: market_calendar.refresh(CALENDAR_START, today, session_factory=session_factory),
         )
     _guarded("collect_prices", lambda: collect_prices.run(session_factory=session_factory))
+    _guarded("daily_batch", lambda: daily_batch.run(session_factory))  # 누락된 기준일 예측 catch-up
+    # 스케줄러가 멈춰 있던 동안 지나간 장의 미체결 주문 정리
+    # (엔진도 체결 시점에 막지만, 여기서 예약금을 바로 풀어 준다)
+    _guarded("paper_expire", lambda: paper_jobs.expire_job(session_factory))
     macro_job(session_factory)
     disclosure_job(session_factory=session_factory)
     news_job(session_factory=session_factory)
+
+
+def _if_trading_day(job: str, fn: Callable[[], object], session_factory: SessionFactory) -> None:
+    if market_calendar.is_trading_day(datetime.now(KST).date(), session_factory):
+        _guarded(job, fn)
+
+
+def paper_open(session_factory: SessionFactory = SessionLocal) -> None:
+    _if_trading_day("paper_open", lambda: paper_jobs.open_session_job(session_factory), session_factory)
+
+
+def paper_expire(session_factory: SessionFactory = SessionLocal) -> None:
+    _if_trading_day("paper_expire", lambda: paper_jobs.expire_job(session_factory), session_factory)
+
+
+def paper_snapshot(session_factory: SessionFactory = SessionLocal) -> None:
+    _if_trading_day("portfolio_snapshot", lambda: paper_jobs.snapshot_job(session_factory), session_factory)
 
 
 def build_scheduler(session_factory: SessionFactory = SessionLocal) -> BlockingScheduler:
@@ -144,6 +175,10 @@ def build_scheduler(session_factory: SessionFactory = SessionLocal) -> BlockingS
         kwargs=sf,
         **common,
     )
+    weekday = {"day_of_week": "mon-fri", "kwargs": sf, **common}
+    sched.add_job(paper_open, "cron", id="paper_open", hour=9, minute=0, **weekday)
+    sched.add_job(paper_expire, "cron", id="paper_expire", hour=15, minute=30, **weekday)
+    sched.add_job(paper_snapshot, "cron", id="paper_snapshot", hour=16, minute=30, **weekday)
     sched.add_job(weekly_job, "cron", id="weekly", day_of_week="sun", hour=3, minute=0, kwargs=sf, **common)
     return sched
 

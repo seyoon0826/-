@@ -65,9 +65,9 @@ export default function StockTable({ stocks }: { stocks: StockSummary[] }) {
                 </Link>{" "}
                 <span className="label">{s.code}</span>
               </td>
-              <td>{won(s.price)}</td>
-              <td className={tone(s.change_pct)}>
-                {arrow(s.change_pct)} {pct(s.change_pct / 100)}
+              <td>{s.price == null ? "-" : won(s.price)}</td>
+              <td className={tone(s.change_pct ?? 0)}>
+                {s.change_pct == null ? "-" : `${arrow(s.change_pct)} ${pct(s.change_pct / 100)}`}
               </td>
               <td>
                 {s.p_up == null ? (

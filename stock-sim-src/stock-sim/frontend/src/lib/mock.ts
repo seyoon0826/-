@@ -79,8 +79,8 @@ export function candles(code: string, lastClose: number, n = 120): Candle[] {
 }
 
 /** 미래 5거래일 날짜 (예측 콘용) */
-export function forecastDates(): string[] {
-  const start = new Date(`${AS_OF}T00:00:00Z`);
+export function forecastDates(from: string = AS_OF): string[] {
+  const start = new Date(`${from}T00:00:00Z`);
   return [1, 2, 3, 4, 5].map((i) => ymd(addBusinessDays(start, i)));
 }
 
@@ -98,8 +98,9 @@ export function markers(cs: Candle[]): ChartMarker[] {
   ];
 }
 
-export function prediction(code: string): Prediction {
-  const s = findStock(code) ?? STOCKS[0];
+export function prediction(code: string, closeOverride?: number): Prediction {
+  const found = findStock(code) ?? STOCKS[0];
+  const s = { ...found, code, price: closeOverride ?? found.price };
   const q = { q10: -0.021, q50: 0.009, q90: 0.043 };
   const tick = (v: number) => Math.round(v / 100) * 100;
   return {

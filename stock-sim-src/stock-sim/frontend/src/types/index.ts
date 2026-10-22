@@ -9,6 +9,22 @@ export interface Candle {
   volume: number;
 }
 
+/** GET /stocks/{code}/chart */
+export interface ChartResponse {
+  candles: { date: string; open: number; high: number; low: number; close: number; volume: number }[];
+  markers: ChartMarker[];
+}
+
+/** GET /stocks/{code}/quote */
+export interface QuoteResponse {
+  price: number;
+  change: number;
+  change_pct: number;
+  volume: number;
+  ts: string;
+  source: "pykrx" | "kis" | "replay";
+}
+
 export interface ChartMarker {
   date: string;
   type: "news" | "disclosure";
@@ -19,8 +35,8 @@ export interface ChartMarker {
 export interface StockSummary {
   code: string;
   name: string;
-  price: number;
-  change_pct: number;
+  price: number | null;
+  change_pct: number | null;
   p_up: number | null;
   as_of_date: string | null;
 }

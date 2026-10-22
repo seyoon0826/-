@@ -16,14 +16,18 @@ def frame(rows):
     idx = [d for d, _ in rows]
     return pd.DataFrame(
         {
-            "open": [c - 100 for _, c in rows], "high": [c + 200 for _, c in rows],
-            "low": [c - 300 for _, c in rows], "close": [c for _, c in rows],
-            "volume": [1_000] * len(rows), "value": [70_000_000] * len(rows),
+            "open": [c - 100 for _, c in rows],
+            "high": [c + 200 for _, c in rows],
+            "low": [c - 300 for _, c in rows],
+            "close": [c for _, c in rows],
+            "volume": [1_000] * len(rows),
+            "value": [70_000_000] * len(rows),
             "market_cap": [400_000_000_000_000] * len(rows),
-            "foreign_net": [5_000] * len(rows), "inst_net": [-3_000] * len(rows),
+            "foreign_net": [5_000] * len(rows),
+            "inst_net": [-3_000] * len(rows),
         },
         index=idx,
-    )  # fmt: skip
+    )
 
 
 class FakeSource:

@@ -64,6 +64,7 @@ def orderbook_to_dict(ob: OrderBook) -> dict:
         "bids": [[lv.price, lv.qty] for lv in ob.bids],
         "ts": ob.ts.isoformat(),
         "source": ob.source,
+        "seq": ob.seq,
     }
 
 
@@ -74,6 +75,7 @@ def orderbook_from_dict(d: dict) -> OrderBook:
         bids=tuple(BookLevel(int(p), int(q)) for p, q in d["bids"]),
         ts=datetime.fromisoformat(d["ts"]),
         source=d["source"],
+        seq=int(d.get("seq", 0)),
     )
 
 
@@ -96,7 +98,9 @@ class QuoteStore:
         await self.r.publish(CH_QUOTE, json.dumps(d))
 
     async def publish_orderbook(self, ob: OrderBook) -> None:
-        d = orderbook_to_dict(ob)
+        """종목별 이벤트 번호(seq)를 붙여 저장/발행한다."""
+        seq = await self.r.incr(f"seq:orderbook:{ob.code}")
+        d = orderbook_to_dict(ob) | {"seq": seq}
         payload = json.dumps(d)
         await self.r.set(orderbook_key(ob.code), payload)
         await self.r.publish(CH_ORDERBOOK, payload)

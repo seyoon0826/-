@@ -15,10 +15,30 @@ known-third-party = ["alembic"]  # backend/alembic 디렉터리와 이름이 같
 
 [tool.ruff.lint.per-file-ignores]
 "app/main.py" = ["E402"]  # 키 로딩(load_dotenv)이 다른 import 보다 먼저여야 함
+"tests/*" = ["E501"]  # 테스트 데이터의 긴 한글 문장(LLM 출력 예시 등)
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]  # FastAPI 의존성 주입 관용구
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+timeout = 120  # 멈춘 테스트(교착/대기)는 실패로 끝낸다 (pytest-timeout)
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+follow_imports = "silent"  # 엔진이 import 하는 모듈의 오류는 보고하지 않는다 (strict 대상은 아래 모듈만)
+
+[[tool.mypy.overrides]]
+module = "app.services.paper.*"  # SPEC 14: 모의투자 엔진은 strict (strict 는 모듈별로 못 걸어 플래그를 나열)
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_any_generics = true
+disallow_untyped_decorators = true
+check_untyped_defs = true
+no_implicit_reexport = true
+warn_return_any = true
+warn_unused_ignores = true
+strict_equality = true

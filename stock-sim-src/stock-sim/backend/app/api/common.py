@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.services.market_store import QuoteStore
 
+DISCLAIMER = "본 서비스는 교육·모의투자 목적이며 예측은 투자 권유가 아닙니다."  # SPEC 1.4
+
 
 class ApiError(Exception):
     def __init__(self, status_code: int, code: str, message: str) -> None:
