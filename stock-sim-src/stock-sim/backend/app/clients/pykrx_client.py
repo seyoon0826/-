@@ -17,8 +17,30 @@ import pandas as pd
 KOSPI_INDEX = "1001"
 
 
+HTTP_TIMEOUT = (10, 60)  # (연결, 읽기) 초
+
+
+def _install_default_timeout() -> None:
+    """pykrx 데이터 요청은 timeout 없이 requests 를 불러 서버가 응답을 멈추면 영원히 기다린다
+    (실제로 SSL read 에서 1시간 가까이 멈춘 적 있음). timeout 을 안 준 요청에만 기본값을 넣는다."""
+    import requests
+
+    if getattr(requests.Session.request, "_stocksim_timeout", False):
+        return
+    orig = requests.Session.request
+
+    def request(self, method, url, **kw):
+        if kw.get("timeout") is None:
+            kw["timeout"] = HTTP_TIMEOUT
+        return orig(self, method, url, **kw)
+
+    request._stocksim_timeout = True  # type: ignore[attr-defined]
+    requests.Session.request = request  # type: ignore[method-assign]
+
+
 def _stock():
     """pykrx 는 import 시점에 KRX 로그인을 시도하므로 쓸 때까지 import 를 미룬다(테스트는 네트워크 없이)."""
+    _install_default_timeout()
     from pykrx import stock
 
     return stock
@@ -86,6 +108,8 @@ def daily_ohlcv(code: str, start: str, end: str) -> pd.DataFrame:
 def investor_net(code: str, start: str, end: str) -> pd.DataFrame:
     """투자자별 순매수 금액(외국인, 기관)."""
     df = _retry(_stock().get_market_trading_value_by_date, start, end, code)
+    if "외국인합계" not in df.columns:  # 거래정지 등으로 KRX 가 빈 응답을 주면 수급만 비운다 (가격은 저장)
+        return pd.DataFrame(columns=["foreign_net", "inst_net"], dtype=float)
     return df.rename(columns={"외국인합계": "foreign_net", "기관합계": "inst_net"})[
         ["foreign_net", "inst_net"]
     ]

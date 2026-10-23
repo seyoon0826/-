@@ -19,7 +19,7 @@ from app.api.common import DISCLAIMER, ApiError, envelope
 from app.core.config import settings
 from app.core.db import get_db
 from app.models import ModelMetric
-from app.services.prediction_service import calibration_live
+from app.services.prediction_service import calibration_live, daily_hit_series
 
 router = APIRouter()
 
@@ -52,8 +52,10 @@ async def performance(
         if scope == "offline":
             path = Path(settings.model_dir) / version / "metrics.json"
             calibration = json.loads(path.read_text()).get("calibration_up", []) if path.exists() else []
+            daily: list[dict[str, Any]] = []
         else:
             calibration = calibration_live(db, version, eff_window)
+            daily = daily_hit_series(db, version, eff_window)
         best = {}
         model = strategies.get("model", {})
         for metric in ("direction_accuracy", "brier", "pinball_q50", "range_coverage", "ic"):
@@ -71,6 +73,7 @@ async def performance(
             "strategies": strategies,
             "best": best,  # 지표별로 가장 좋은 전략 (화면 강조용, 모델이 아니어도 그대로 표시)
             "calibration_up": calibration,
+            "daily": daily,  # 기준일별 적중률과 누적 적중률 (라이브만)
             "range_coverage_target": 0.8,
             "n": model.get("n", 0),
         }

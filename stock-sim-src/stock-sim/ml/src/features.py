@@ -43,8 +43,8 @@ PRICE_COLUMNS = [
     "market_cap",
 ]
 
-# 순서가 곧 모델 입력 순서다. 바꾸면 features.json 과 달라져 서버가 기동을 거부한다 (SPEC 8.4).
-FEATURES: list[str] = [
+# build_features 가 계산하는 원래 값(근거 문장에 쓴다).
+RAW_FEATURES: list[str] = [
     # 수익률
     "ret_1d",
     "ret_5d",
@@ -84,6 +84,16 @@ FEATURES: list[str] = [
     "rel_ret_20d",
 ]
 
+MARKET_FEATURES = ["kospi_ret_5d", "kospi_ret_20d", "kospi_vol_20d", "usdkrw_chg_5d", "base_rate"]
+# 종목 피처: 같은 날 종목들 사이 순위(0~1)로 바꿔 모델에 넣는다. 시장 국면에 따라 값의 수준이 통째로 움직이는
+# 문제(예: 하락장에는 모든 종목의 ret_20d 가 음수)를 없애고, '다른 종목보다 어떤가'만 남긴다.
+# rel_ret_20d 는 같은 날 순위가 ret_20d 와 똑같아 뺀다. value_rank 는 이미 같은 날 순위다.
+STOCK_FEATURES = [f for f in RAW_FEATURES if f not in [*MARKET_FEATURES, "value_rank", "rel_ret_20d"]]
+XR = "_xr"  # cross-sectional rank
+
+# 모델 입력 (순서가 곧 입력 순서). 바꾸면 features.json 과 달라져 서버가 기동을 거부한다 (SPEC 8.4).
+FEATURES: list[str] = [f + XR for f in STOCK_FEATURES] + ["value_rank", *MARKET_FEATURES]
+
 
 # ---------------------------------------------------------------- 사람이 읽는 근거 문장 (FR-PR-6)
 def _pct(v: float, digits: int = 1) -> str:
@@ -94,7 +104,7 @@ def _updown(v: float, up: str = "상승", down: str = "하락") -> str:
     return up if v >= 0 else down
 
 
-FEATURE_LABELS: dict[str, str] = {
+_RAW_LABELS: dict[str, str] = {
     "ret_1d": "최근 1거래일 {pct} {updown}",
     "ret_5d": "최근 5거래일 {pct} {updown}",
     "ret_20d": "최근 20거래일 {pct} {updown}",
@@ -125,10 +135,24 @@ FEATURE_LABELS: dict[str, str] = {
     "base_rate": "기준금리 {num2}%",
     "rel_ret_20d": "최근 20거래일 KOSPI 대비 {pctp}",
 }
+FEATURE_LABELS: dict[str, str] = {
+    **_RAW_LABELS,
+    **{f + XR: _RAW_LABELS[f] + " (같은 날 종목 중 백분위 {rank})" for f in STOCK_FEATURES},
+}
 
 
-def label_for(feature: str, value: float | None) -> str:
-    """피처 값 -> 근거 문장. 예: ret_20d=0.083 -> '최근 20거래일 +8.3% 상승'."""
+def label_for(feature: str, value: float | None, raw: float | None = None) -> str:
+    """피처 값 -> 근거 문장. 예: ret_20d=0.083 -> '최근 20거래일 +8.3% 상승'.
+    순위 피처(…_xr)는 value 가 같은 날 순위(0~1), raw 가 원래 값이다:
+    ret_20d_xr=0.9, raw=0.083 -> '최근 20거래일 +8.3% 상승 (같은 날 종목 중 백분위 90)'."""
+    if feature.endswith(XR):
+        base = feature[: -len(XR)]
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            return label_for(base, raw)
+        rank = f"같은 날 종목 중 백분위 {float(value) * 100:.0f}"
+        if raw is None or (isinstance(raw, float) and np.isnan(raw)):  # 원래 값을 모르면 순위만
+            return f"{_RAW_LABELS.get(base, base).split(' {')[0]} {rank}"
+        return f"{label_for(base, raw)} ({rank})"
     template = FEATURE_LABELS.get(feature, feature + " {num2}")
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return template.split(" {")[0] + " (데이터 없음)"
@@ -264,12 +288,15 @@ def build_features(
     mkt = _market_features(idx, mac, out["date"])
     out = out.merge(mkt, on="date", how="left")
     out["rel_ret_20d"] = out["ret_20d"] - out["kospi_ret_20d"]
-    return out[["code", "date", "close", *FEATURES]]
+    for f in STOCK_FEATURES:  # 같은 날 종목들 사이 순위 (같은 날짜 안에서만 비교 -> 미래 정보 없음)
+        out[f + XR] = out.groupby("date")[f].rank(pct=True)
+    return out[["code", "date", "close", *RAW_FEATURES, *(f + XR for f in STOCK_FEATURES)]]
 
 
 def build_targets(prices: pd.DataFrame, index: pd.DataFrame | None, horizon: int = HORIZON) -> pd.DataFrame:
     """학습용 타깃 (SPEC 8.3). 이 함수만 미래(t+h)를 본다 — 피처에는 절대 쓰지 않는다.
-    ret_fwd: close[t+h]/close[t]-1, y_up = 1[ret_fwd > 0], y_out = 1[ret_fwd - kospi_fwd > 0]."""
+    ret_fwd: close[t+h]/close[t]-1, y_up = 1[ret_fwd > 0], y_out = 1[ret_fwd - kospi_fwd > 0],
+    y_rel = 1[ret_fwd > 같은 날 종목들의 ret_fwd 중앙값] (상승확률 모델의 학습 라벨, 보정은 y_up 으로)."""
     p = prices[["code", "date", "close"]].copy()
     p["date"] = pd.to_datetime(p["date"])
     p = p.sort_values(["code", "date"])
@@ -283,4 +310,6 @@ def build_targets(prices: pd.DataFrame, index: pd.DataFrame | None, horizon: int
     p["y_up"] = (p["ret_fwd"] > 0).astype(float).where(p["ret_fwd"].notna())
     excess = p["ret_fwd"] - p["kospi_fwd"]
     p["y_out"] = (excess > 0).astype(float).where(excess.notna())
-    return p[["code", "date", "ret_fwd", "kospi_fwd", "y_up", "y_out"]]
+    med = p.groupby("date")["ret_fwd"].transform("median")
+    p["y_rel"] = (p["ret_fwd"] > med).astype(float).where(p["ret_fwd"].notna())
+    return p[["code", "date", "ret_fwd", "kospi_fwd", "y_up", "y_out", "y_rel"]]

@@ -25,6 +25,7 @@ ARTIFACTS = {
     "q50.txt",
     "q90.txt",
     "calibrator_up.pkl",
+    "calibrator_out.pkl",
     "features.json",
     "feature_labels.json",
     "metrics.json",
@@ -55,9 +56,17 @@ def test_artifacts_follow_spec_layout(trained):
     )
     assert {p.name for p in path.iterdir()} == ARTIFACTS
     assert json.loads((path / "features.json").read_text()) == FEATURES
-    assert set(json.loads((path / "feature_labels.json").read_text())) == set(FEATURES)
+    assert set(FEATURES) <= set(json.loads((path / "feature_labels.json").read_text()))
     meta = json.loads((path / "meta.json").read_text())
-    for key in ("train_period", "created_at", "data_hash", "versions", "best_iterations"):
+    for key in (
+        "train_period",
+        "created_at",
+        "data_hash",
+        "versions",
+        "best_iterations",
+        "calibration",
+        "up_target",
+    ):
         assert key in meta
     assert meta["versions"]["lightgbm"] and len(meta["data_hash"]) == 64
 
@@ -80,6 +89,37 @@ def test_metrics_compare_model_with_three_baselines_offline(trained):
         } <= set(s)
     assert len(m["calibration_up"]) == 10
     assert sum(b["n"] for b in m["calibration_up"]) == m["strategies"]["model"]["n"]
+
+
+def test_metrics_report_skill_vs_base_rate(trained):
+    """예측력 지표: 학습 구간 상승 비율(기후값)보다 Brier 가 나은지, IC 가 양수인 fold 수."""
+    _, path = trained
+    m = json.loads((path / "metrics.json").read_text())
+    k = m["skill"]
+    assert {"brier_model", "brier_base_rate", "brier_skill", "ic_p_up", "ic_positive_folds", "folds"} <= set(
+        k
+    )
+    assert k["brier_skill"] == pytest.approx(1 - k["brier_model"] / k["brier_base_rate"], abs=1e-3)
+    assert 0 <= k["ic_positive_folds"] <= k["folds"] == len(m["folds"])
+    assert k["brier_skill"] > 0  # 심은 신호가 있으면 기후값보다 낫다
+
+
+def test_rank_features_and_relative_target():
+    """종목 피처는 같은 날 종목 간 백분위(_xr)로 바꾸고, 분류 라벨은 같은 날 중앙값 초과 여부(y_rel)."""
+    prices, index, macro = make_synthetic(n_codes=5, n_days=300, seed=3)
+    f = build_features(prices, index, macro)
+    day = f[f["date"] == f["date"].max()]
+    xr = [c for c in FEATURES if c.endswith("_xr")]
+    assert xr and all(c[:-3] in f.columns for c in xr)
+    r = day["ret_20d_xr"].to_numpy()
+    assert np.allclose(sorted(r), [0.2, 0.4, 0.6, 0.8, 1.0])  # 5종목 백분위
+    assert (day.sort_values("ret_20d")["ret_20d_xr"].diff().dropna() > 0).all()
+    from src.features import build_targets
+
+    t = build_targets(prices, index)
+    t = t[t["ret_fwd"].notna()]
+    share = t.groupby("date")["y_rel"].mean()
+    assert share.between(0.39, 0.41).all()  # 5종목이면 중앙값 초과는 항상 2종목
 
 
 def test_model_learns_planted_signal_better_than_baselines(trained):
@@ -166,6 +206,9 @@ def test_top5_factors_have_spec_shape_and_sentences(trained, market):
         assert mags == sorted(mags, reverse=True)  # 절댓값 내림차순
         assert all(f["direction"] == ("+" if f["shap_value"] >= 0 else "-") for f in row)
         assert all(f["feature"] in FEATURES and f["label"] for f in row)
+        for f in row:  # 순위 피처 문장에는 원래 값과 백분위가 같이 나온다
+            if f["feature"].endswith("_xr") and f["value"] is not None:
+                assert f"백분위 {f['value'] * 100:.0f}" in f["label"]
 
 
 def test_shap_values_sum_to_model_log_odds(trained, market):
@@ -181,12 +224,16 @@ def test_shap_values_sum_to_model_log_odds(trained, market):
 
 # ---------------------------------------------------------------- 피처 세부 규칙
 def test_label_sentences_cover_all_features():
-    assert set(FEATURE_LABELS) == set(FEATURES)
+    assert set(FEATURES) <= set(FEATURE_LABELS)
     assert label_for("ret_20d", 0.083) == "최근 20거래일 +8.3% 상승"  # SPEC FR-PR-6 예시
     assert label_for("ma20_gap", -0.021) == "20일 이동평균 대비 -2.1% 아래"
     assert label_for("foreign_net_5d", 0.0012) == "최근 5일 외국인 순매수 (시총 대비 +0.12%)"
     assert label_for("rsi_14", 25) == "RSI(14) 25, 침체 구간"
     assert "데이터 없음" in label_for("usdkrw_chg_5d", float("nan"))
+    # 순위 피처: 원래 값 문장 + 같은 날 백분위
+    assert label_for("ret_20d_xr", 0.9, 0.083) == "최근 20거래일 +8.3% 상승 (같은 날 종목 중 백분위 90)"
+    assert label_for("ret_20d_xr", 0.9) == "최근 20거래일 같은 날 종목 중 백분위 90"
+    assert "데이터 없음" in label_for("ret_20d_xr", float("nan"))
 
 
 def _one_stock(n=30, **override):

@@ -119,6 +119,7 @@ a {
 }
 .panel-h {
   display: flex;
+  flex-wrap: wrap; /* 좁은 화면에서 제목과 버튼이 넘치지 않게 */
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
@@ -326,4 +327,241 @@ a {
 }
 .chip-live::before {
   content: "● ";
+}
+
+/* ---------------------------------------------------------------- Phase 7 */
+.nav a.active {
+  color: var(--text);
+  font-weight: 600;
+}
+.chip-warn {
+  background: rgba(239, 159, 39, 0.15);
+  color: #b26c00;
+  border-color: transparent;
+}
+.chip-err {
+  background: rgba(226, 75, 74, 0.12);
+  color: var(--up);
+  border-color: transparent;
+}
+.banner {
+  background: rgba(239, 159, 39, 0.12);
+  border: 0.5px solid rgba(239, 159, 39, 0.4);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+}
+.state-box {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 18px 4px;
+}
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 52px;
+  display: grid;
+  gap: 8px;
+  z-index: 50;
+  max-width: min(360px, calc(100vw - 32px));
+}
+.toast {
+  background: var(--surface);
+  border: 0.5px solid var(--border-strong);
+  border-left: 3px solid var(--text-2);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.toast-up {
+  border-left-color: var(--up);
+}
+.toast-dn {
+  border-left-color: var(--dn);
+}
+.toast-err {
+  border-left-color: #b26c00;
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 0.5px solid var(--border);
+  margin-bottom: 10px;
+  overflow-x: auto;
+}
+.tabs button {
+  all: unset;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.tabs button[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+  font-weight: 600;
+}
+.seg {
+  display: inline-flex;
+  border: 0.5px solid var(--border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.seg button {
+  all: unset;
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.seg button[aria-pressed="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 600;
+}
+.seg.buy button[aria-pressed="true"] {
+  background: var(--up);
+  color: #fff;
+}
+.seg.sell button[aria-pressed="true"].sell-on {
+  background: var(--dn);
+  color: #fff;
+}
+.field {
+  display: grid;
+  gap: 4px;
+}
+.input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 0.5px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.input-row {
+  display: flex;
+  gap: 6px;
+}
+.btn-primary {
+  border: 0;
+  color: #fff;
+  justify-content: center;
+  font-weight: 600;
+  padding: 10px 14px;
+}
+.btn-buy {
+  background: var(--up);
+}
+.btn-sell {
+  background: var(--dn);
+}
+.btn-primary:hover {
+  opacity: 0.9;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+.book {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.book td {
+  padding: 3px 8px;
+  position: relative;
+}
+.book .qtybar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  opacity: 0.18;
+}
+.book tr.ask td.p {
+  color: var(--dn);
+}
+.book tr.bid td.p {
+  color: var(--up);
+}
+.book tr {
+  cursor: pointer;
+}
+.book tr:hover td {
+  background: var(--surface-2);
+}
+.book tr.mid td {
+  border-top: 0.5px solid var(--border-strong);
+}
+.paper-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: 12px;
+  align-items: start;
+}
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.metric-best {
+  font-weight: 700;
+}
+.metric-best::after {
+  content: " ★";
+  color: var(--hit);
+  font-size: 11px;
+}
+@media (max-width: 960px) {
+  .paper-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .paper-grid > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 720px) {
+  .paper-grid {
+    grid-template-columns: 1fr;
+  }
+  .topbar-in {
+    height: auto;
+    padding: 10px 16px;
+  }
+  .nav a {
+    margin-right: 12px;
+  }
+  .brand {
+    margin-right: 14px;
+  }
+  .table td,
+  .table th {
+    padding: 9px 6px;
+  }
+  .disclaimer {
+    font-size: 11px;
+  }
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

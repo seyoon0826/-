@@ -297,3 +297,35 @@ def test_incomplete_top_list_does_not_wipe_universe(sf):
         assert all(x.active for x in s.scalars(select(Stock)))
         job = s.scalars(select(JobRun).where(JobRun.job == "select_universe")).one()
     assert job.status == "failed"
+
+
+def test_pykrx_requests_get_default_timeout(monkeypatch):
+    """pykrx 는 timeout 없이 요청해 응답 없는 연결에서 영원히 멈춘다 -> 기본 timeout 을 넣는다."""
+    import requests
+
+    from app.clients import pykrx_client as pk
+
+    seen = []
+    monkeypatch.setattr(requests.Session, "request", lambda self, m, u, **kw: seen.append(kw.get("timeout")))
+    pk._install_default_timeout()
+    pk._install_default_timeout()  # 두 번 불러도 한 번만 감싼다
+    s = requests.Session()
+    s.request("GET", "https://example.invalid")
+    s.request("GET", "https://example.invalid", timeout=5)  # 직접 준 값은 그대로
+    assert seen == [pk.HTTP_TIMEOUT, 5]
+
+
+def test_empty_investor_response_keeps_prices_with_null_flow(monkeypatch):
+    """KRX 가 수급을 빈 표로 주면(거래정지 종목 등) 종목 전체를 버리지 않고 수급만 비운다."""
+    from types import SimpleNamespace
+
+    from app.clients import pykrx_client as pk
+
+    monkeypatch.setattr(
+        pk, "_stock", lambda: SimpleNamespace(get_market_trading_value_by_date=lambda *a: pd.DataFrame())
+    )
+    out = pk.investor_net("001570", "20260101", "20261022")
+    assert list(out.columns) == ["foreign_net", "inst_net"] and out.empty
+    base = pd.DataFrame({"close": [1000.0]}, index=pd.to_datetime(["2026-01-02"]))
+    joined = base.join(out, how="left")
+    assert joined["close"].iloc[0] == 1000.0 and joined["foreign_net"].isna().all()

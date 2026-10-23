@@ -22,7 +22,7 @@ from app.models import (
     Stock,
 )
 from app.services.market_data import KST
-from app.services.prediction_service import latest_prediction, price_range
+from app.services.prediction_service import latest_prediction, model_skill, price_range
 
 router = APIRouter()
 META = {"disclaimer": DISCLAIMER}
@@ -108,7 +108,9 @@ async def get_prediction(code: str, db: Session = Depends(get_db)):
             "model_version": p.model_version,
         }
 
-    return envelope(await run_in_threadpool(work), META)
+    data = await run_in_threadpool(work)
+    # 예측력 지표 (오프라인 walk-forward). level=low 이면 화면에 '예측력 낮음'을 표시한다.
+    return envelope(data, {**META, "skill": model_skill(settings.model_dir, data["model_version"])})
 
 
 @router.get("/{code}/prediction/history")

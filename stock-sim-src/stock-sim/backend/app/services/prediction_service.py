@@ -480,11 +480,56 @@ def store_offline_metrics(session: Session, model_dir: str | Path, version: str,
     return n_rows
 
 
+SKILL_MIN_POSITIVE_FOLDS = 0.6  # IC 가 양수인 fold 비율이 이보다 낮으면 '예측력 낮음'
+_skill_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
+
+
+def model_skill(model_dir: str | Path, version: str) -> dict[str, Any] | None:
+    """오프라인 walk-forward 예측력 (metrics.json 의 skill). 화면의 '예측력 낮음' 표시에 쓴다.
+    low = 과거 상승 비율(기후값)보다 Brier 가 낫지 않거나, IC 가 양수인 fold 가 60% 미만."""
+    key = (str(model_dir), version)
+    if key not in _skill_cache:
+        path = Path(model_dir) / version / "metrics.json"
+        k = json.loads(path.read_text()).get("skill") if path.exists() else None
+        if k is None:
+            _skill_cache[key] = None
+        else:
+            share = k["ic_positive_folds"] / k["folds"] if k["folds"] else 0.0
+            _skill_cache[key] = {
+                "scope": "offline",
+                "brier_skill": round(float(k["brier_skill"]), 4),
+                "ic": round(float(k["ic_p_up"]), 4),
+                "ic_positive_folds": int(k["ic_positive_folds"]),
+                "folds": int(k["folds"]),
+                "level": "low" if k["brier_skill"] <= 0 or share < SKILL_MIN_POSITIVE_FOLDS else "ok",
+            }
+    return _skill_cache[key]
+
+
 def calibration_live(session: Session, version: str, window: str) -> list[dict[str, Any]]:
     df = window_slice(live_frame(session, version), window)
     if df.empty:
         return ev.calibration_curve(np.array([]), np.array([]))
     return ev.calibration_curve(df["p_up"].to_numpy(), df["y_up"].to_numpy())
+
+
+def daily_hit_series(session: Session, version: str, window: str) -> list[dict[str, Any]]:
+    """기준일별 방향 적중률과 누적 적중률 (성적표의 일별 누적 적중률 추이, SPEC 13.4)."""
+    df = window_slice(live_frame(session, version), window)
+    if df.empty:
+        return []
+    df = df.assign(hit=((df["p_up"] >= 0.5) == (df["y_up"] == 1)).astype(float))
+    g = df.groupby("date")["hit"].agg(["sum", "count"]).sort_index()
+    cum = g["sum"].cumsum() / g["count"].cumsum()
+    return [
+        {
+            "date": d.isoformat(),
+            "hit_rate": float(r["sum"] / r["count"]),
+            "n": int(r["count"]),
+            "cumulative_hit_rate": float(cum[d]),
+        }
+        for d, r in g.iterrows()
+    ]
 
 
 def missing_days(session: Session, version: str, limit: int = 10) -> list[date]:

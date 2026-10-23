@@ -71,5 +71,5 @@ def metrics(pred: pd.DataFrame) -> dict[str, Any]:
         "pinball_q90": pinball(pred["q90"].to_numpy(), r, 0.9),
         "range_coverage": coverage(pred["q10"].to_numpy(), pred["q90"].to_numpy(), r),
         "ic": information_coefficient(pred["date"], pred["q50"].to_numpy(), r),
-        "n": int(len(pred)),
+        "n": len(pred),
     }

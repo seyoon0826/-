@@ -367,6 +367,23 @@ def test_prediction_api_shape_and_disclaimer(sf, seeded, ctx, model_dir, client)
         "base",
         "bear",
     }
+    sk = body["meta"]["skill"]  # 오프라인 예측력 + 낮음 판정
+    assert sk["scope"] == "offline" and sk["level"] in ("low", "ok") and sk["folds"] >= 1
+
+
+def test_model_skill_level_rule(tmp_path):
+    def write(version, skill):
+        (tmp_path / version).mkdir()
+        (tmp_path / version / "metrics.json").write_text(json.dumps({"skill": skill}))
+
+    base = {"brier_model": 0.24, "brier_base_rate": 0.25, "ic_p_up": 0.03, "folds": 10}
+    write("good", {**base, "brier_skill": 0.04, "ic_positive_folds": 7})
+    write("worse_than_base_rate", {**base, "brier_skill": -0.003, "ic_positive_folds": 9})
+    write("unstable_ic", {**base, "brier_skill": 0.01, "ic_positive_folds": 5})
+    assert ps.model_skill(tmp_path, "good")["level"] == "ok"
+    assert ps.model_skill(tmp_path, "worse_than_base_rate")["level"] == "low"
+    assert ps.model_skill(tmp_path, "unstable_ic")["level"] == "low"
+    assert ps.model_skill(tmp_path, "missing") is None
 
 
 def test_prediction_api_404s(sf, seeded, client):
@@ -398,6 +415,8 @@ def test_performance_api_live_and_offline(sf, seeded, ctx, model_dir, client):
         and set(d["strategies"]) == {"model", "always_up", "momentum", "kospi"}
     )
     assert len(d["calibration_up"]) == 10 and d["range_coverage_target"] == 0.8
+    assert len(d["daily"]) == 15 and all(0 <= x["cumulative_hit_rate"] <= 1 for x in d["daily"])
+    assert sum(x["n"] for x in d["daily"]) == 15 * N_CODES
     assert d["n"] == 15 * N_CODES and set(d["best"]) >= {"brier", "direction_accuracy"}
     assert "disclaimer" in live["meta"]
     off = client.get("/api/v1/model/performance?scope=offline&window=60").json()["data"]

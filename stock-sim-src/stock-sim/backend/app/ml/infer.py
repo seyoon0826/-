@@ -34,6 +34,7 @@ class ModelBundle:
     out_clf: lgb.Booster
     quantiles: dict[str, lgb.Booster]
     calibrator_up: Any | None
+    calibrator_out: Any | None
     features: list[str]
     meta: dict[str, Any]
 
@@ -49,16 +50,20 @@ class ModelBundle:
                 f"모델 {version} 의 features.json 이 서빙 피처와 다릅니다 "
                 f"(서빙에만 있음: {missing}, 모델에만 있음: {extra}, 순서 차이 포함). 모델을 다시 학습하세요."
             )
-        cal = None
-        if (d / "calibrator_up.pkl").exists():
-            with open(d / "calibrator_up.pkl", "rb") as fh:
-                cal = pickle.load(fh)  # noqa: S301 - 자체 학습 산출물만 로드한다
+
+        def _cal(name: str) -> Any | None:
+            if not (d / name).exists():
+                return None
+            with open(d / name, "rb") as fh:
+                return pickle.load(fh)  # noqa: S301 - 자체 학습 산출물만 로드한다
+
         return cls(
             version=version,
             up_clf=lgb.Booster(model_file=str(d / "up_clf.txt")),
             out_clf=lgb.Booster(model_file=str(d / "out_clf.txt")),
             quantiles={k: lgb.Booster(model_file=str(d / f"{k}.txt")) for k in ("q10", "q50", "q90")},
-            calibrator_up=cal,
+            calibrator_up=_cal("calibrator_up.pkl"),
+            calibrator_out=_cal("calibrator_out.pkl"),
             features=features,
             meta=json.loads((d / "meta.json").read_text()) if (d / "meta.json").exists() else {},
         )
@@ -70,12 +75,15 @@ class ModelBundle:
         p_up = self.up_clf.predict(Xf)
         if self.calibrator_up is not None:
             p_up = self.calibrator_up.predict(p_up)
+        p_out = self.out_clf.predict(Xf)
+        if self.calibrator_out is not None:
+            p_out = self.calibrator_out.predict(p_out)
         q = np.column_stack([self.quantiles[k].predict(Xf) for k in ("q10", "q50", "q90")])
         q.sort(axis=1)
         return pd.DataFrame(
             {
                 "p_up": np.clip(p_up, 0, 1),
-                "p_outperform": self.out_clf.predict(Xf),
+                "p_outperform": np.clip(p_out, 0, 1),
                 "q10": q[:, 0],
                 "q50": q[:, 1],
                 "q90": q[:, 2],

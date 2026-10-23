@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import shap
 
-from app.ml.features import label_for
+from app.ml.features import XR, label_for
 from app.ml.infer import ModelBundle
 
 
@@ -38,6 +38,11 @@ class Explainer:
             for rank, j in enumerate(order, start=1):
                 value = X.iloc[i][feats[j]]
                 v = None if pd.isna(value) else float(value)
+                raw = None
+                base = feats[j][: -len(XR)]
+                if feats[j].endswith(XR) and base in X.columns:  # 순위 피처는 원래 값도 문장에 쓴다
+                    rv = X.iloc[i][base]
+                    raw = None if pd.isna(rv) else float(rv)
                 row.append(
                     {
                         "rank": rank,
@@ -45,7 +50,7 @@ class Explainer:
                         "value": v,
                         "shap_value": float(sv[i, j]),
                         "direction": "+" if sv[i, j] >= 0 else "-",
-                        "label": label_for(feats[j], v),
+                        "label": label_for(feats[j], v, raw),
                     }
                 )
             out.append(row)
