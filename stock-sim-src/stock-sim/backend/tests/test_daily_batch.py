@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime, time
 from decimal import Decimal
 
+import fakeredis
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +14,7 @@ from sqlalchemy import func, insert, select
 from src import train_lgbm as T
 from src.synthetic import make_synthetic
 
+from app.api.common import get_store
 from app.core.config import settings
 from app.core.db import get_db
 from app.ml.explain import Explainer
@@ -32,6 +34,7 @@ from app.models import (
 )
 from app.services import prediction_service as ps
 from app.services.market_data import KST
+from app.services.market_store import QuoteStore
 from app.services.scenario_service import LLMResult
 from app.services.ticks import is_valid_tick
 
@@ -337,6 +340,8 @@ def client(sf, monkeypatch, model_dir):
     from app.main import app
 
     app.dependency_overrides[get_db] = db
+    # 실제 Redis 에 붙지 않는다 (SPEC 14: 네트워크 없이 테스트). 실시간 시세가 없으면 DB 종가로 보여준다.
+    app.dependency_overrides[get_store] = lambda: QuoteStore(fakeredis.FakeAsyncRedis(decode_responses=True))
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

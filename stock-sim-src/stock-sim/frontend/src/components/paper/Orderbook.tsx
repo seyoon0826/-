@@ -21,7 +21,10 @@ export default function Orderbook({
         {askRows.map((a) => (
           <tr key={`a${a.price}`} className="ask" onClick={() => onPick(a.price)}>
             <td style={{ width: "50%", textAlign: "right" }}>
-              <span className="qtybar" style={{ right: 0, width: `${(a.qty / max) * 100}%`, background: "var(--dn)" }} />
+              <span
+                className="qtybar"
+                style={{ right: 0, width: `${(a.qty / max) * 100}%`, background: "var(--dn)" }}
+              />
               {won(a.qty)}
             </td>
             <td className="p" style={{ fontWeight: a.price === price ? 700 : 500 }}>

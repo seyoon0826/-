@@ -30,7 +30,10 @@ export default function PaperTabs({
   const [tab, setTab] = useState<Tab>("holdings");
   const [status, setStatus] = useState("");
   const open = useSWR<Order[]>([`/paper/orders?status=PENDING,PARTIAL&limit=100&v=${version}`, token], swrFetcher);
-  const orders = useSWR<Order[]>([`/paper/orders?limit=100${status ? `&status=${status}` : ""}&v=${version}`, token], swrFetcher);
+  const orders = useSWR<Order[]>(
+    [`/paper/orders?limit=100${status ? `&status=${status}` : ""}&v=${version}`, token],
+    swrFetcher,
+  );
   const trades = useSWR<Trade[]>(tab === "trades" ? [`/paper/trades?limit=100&v=${version}`, token] : null, swrFetcher);
   const nm = (c: string) => names[c] ?? c;
 
@@ -131,11 +134,18 @@ export default function PaperTabs({
     const src = tab === "open" ? open : tab === "orders" ? orders : trades;
     if (src.error) return <ErrorBox message="내역을 불러오지 못했습니다." onRetry={() => src.mutate()} />;
     if (!src.data) return <Skeleton lines={4} />;
-    if (tab === "open") return open.data!.length ? orderRows(open.data!, true) : <Empty title="미체결 주문이 없습니다" />;
+    if (tab === "open")
+      return open.data!.length ? orderRows(open.data!, true) : <Empty title="미체결 주문이 없습니다" />;
     if (tab === "orders")
       return (
         <>
-          <select className="input" style={{ width: 160, marginBottom: 8 }} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="상태 필터">
+          <select
+            className="input"
+            style={{ width: 160, marginBottom: 8 }}
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            aria-label="상태 필터"
+          >
             {STATUS_FILTERS.map((s) => (
               <option key={s} value={s}>
                 {s ? STATUS_LABEL[s] : "전체 상태"}

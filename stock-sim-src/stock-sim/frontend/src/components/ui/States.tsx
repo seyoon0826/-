@@ -30,7 +30,11 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
       <p className="value" style={{ margin: 0 }}>
         {title}
       </p>
-      {children && <p className="label" style={{ margin: 0 }}>{children}</p>}
+      {children && (
+        <p className="label" style={{ margin: 0 }}>
+          {children}
+        </p>
+      )}
     </div>
   );
 }

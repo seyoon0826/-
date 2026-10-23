@@ -48,5 +48,5 @@ export async function apiGet<T>(path: string, token?: string | null): Promise<T>
 }
 
 /** SWR 키: [path, token?] */
-export const swrFetcher = <T,>([path, token]: [string, string | null | undefined]) => apiGet<T>(path, token);
-export const swrEnvelope = <T,>([path, token]: [string, string | null | undefined]) => apiRequest<T>(path, { token });
+export const swrFetcher = <T>([path, token]: [string, string | null | undefined]) => apiGet<T>(path, token);
+export const swrEnvelope = <T>([path, token]: [string, string | null | undefined]) => apiRequest<T>(path, { token });

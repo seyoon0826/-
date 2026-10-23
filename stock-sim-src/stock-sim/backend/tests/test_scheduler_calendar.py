@@ -148,10 +148,17 @@ def test_build_scheduler_registers_spec_jobs(sf):
         "disclosures",
         "weekly",
         "paper_open",
+        "ai_rebalance",
         "paper_expire",
         "paper_snapshot",
     }
-    for jid, (h, m) in {"paper_open": (9, 0), "paper_expire": (15, 30), "paper_snapshot": (16, 30)}.items():
+    spec = {
+        "paper_open": (9, 0),
+        "ai_rebalance": (9, 5),
+        "paper_expire": (15, 30),
+        "paper_snapshot": (16, 30),
+    }
+    for jid, (h, m) in spec.items():
         f = {x.name: str(x) for x in jobs[jid].trigger.fields}
         assert (f["day_of_week"], f["hour"], f["minute"]) == ("mon-fri", str(h), str(m))  # SPEC 12
     assert str(sched.timezone) == "Asia/Seoul"

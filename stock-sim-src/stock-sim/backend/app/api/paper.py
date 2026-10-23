@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.common import ApiError, envelope, get_store
 from app.api.deps import current_user_id
 from app.core.db import get_db
-from app.models import Order, PaperAccount, Position, Trade
+from app.models import Order, PaperAccount, Position, Prediction, Trade
 from app.services.market_data import KST
 from app.services.market_store import QuoteStore
 from app.services.paper import accounts as acc
@@ -235,14 +235,15 @@ async def cancel_order(
 async def list_orders(
     status: str | None = None,
     code: str | None = None,
+    account: Literal["me", "ai"] = "me",  # ai: 내 AI 계좌의 주문 (근거 prediction_id 포함, FR-AI-4)
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
     user_id: int = Depends(current_user_id),
     db: Session = Depends(get_db),
 ):
     def work() -> tuple[list[dict], str | None]:
-        account = _user_account(db, user_id)
-        q = select(Order).where(Order.account_id == account.id)
+        account_ = _user_account(db, user_id, "USER" if account == "me" else "AI")
+        q = select(Order).where(Order.account_id == account_.id)
         if status:
             q = q.where(Order.status.in_(status.split(",")))
         if code:
@@ -251,7 +252,19 @@ async def list_orders(
             q = q.where(Order.created_at < datetime.fromisoformat(cursor))
         rows = list(db.scalars(q.order_by(Order.created_at.desc()).limit(limit + 1)))
         nxt = rows[limit - 1].created_at.isoformat() if len(rows) > limit else None
-        return [order_dict(o) for o in rows[:limit]], nxt
+        rows = rows[:limit]
+        pids = {o.prediction_id for o in rows if o.prediction_id}
+        preds = (
+            {p.id: p for p in db.scalars(select(Prediction).where(Prediction.id.in_(pids)))} if pids else {}
+        )
+
+        def with_basis(o: Order) -> dict:
+            d = order_dict(o)
+            p = preds.get(o.prediction_id) if o.prediction_id else None
+            d["basis"] = {"p_up": float(p.p_up), "as_of_date": p.as_of_date.isoformat()} if p else None
+            return d
+
+        return [with_basis(o) for o in rows], nxt
 
     items, nxt = await run_in_threadpool(work)
     return envelope(items, {"next_cursor": nxt})

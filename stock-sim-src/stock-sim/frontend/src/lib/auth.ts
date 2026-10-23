@@ -1,42 +1,122 @@
 "use client";
 
-// 로그인 토큰 보관. 가입/로그인 API 는 Phase 8 — 그 전에는 개발용으로 토큰을 직접 넣어 쓴다.
+// 로그인 상태 (SPEC 6.8 FR-AU-2).
+// - 액세스 토큰(30분)은 메모리에만 둔다. localStorage 에 두지 않아 XSS 로 토큰이 새는 범위를 줄인다.
+// - 리프레시 토큰(14일)은 서버가 httpOnly 쿠키로 준다. 새로고침하면 /auth/refresh 로 로그인을 복구한다.
+// - 만료 1분 전에 자동으로 다시 받는다.
 import { useEffect, useState } from "react";
 
-const KEY = "stocksim.token";
+import { API_BASE, ApiError } from "@/lib/api";
 
-function read(): string | null {
+export interface AuthUser {
+  id: number;
+  email: string;
+  created_at: string;
+}
+
+interface Session {
+  token: string;
+  user: AuthUser;
+}
+
+interface TokenResponse {
+  access_token: string;
+  expires_in: number;
+  user: AuthUser;
+}
+
+let session: Session | null = null;
+let restored = false;
+let restoring: Promise<void> | null = null;
+let timer: ReturnType<typeof setTimeout> | undefined;
+const listeners = new Set<() => void>();
+
+function emit() {
+  listeners.forEach((f) => f());
+}
+
+async function authCall(path: string, body?: unknown): Promise<TokenResponse | null> {
+  let res: Response;
   try {
-    return window.localStorage.getItem(KEY);
+    res = await fetch(`${API_BASE}/auth${path}`, {
+      method: "POST",
+      credentials: "include", // 리프레시 쿠키 주고받기
+      headers: body === undefined ? {} : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: "no-store",
+    });
   } catch {
-    return null;
+    throw new ApiError(0, "NETWORK_ERROR", "서버에 연결할 수 없습니다.");
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok)
+    throw new ApiError(res.status, json?.error?.code ?? "HTTP_ERROR", json?.error?.message ?? res.statusText);
+  return (json?.data as TokenResponse) ?? null;
+}
+
+function accept(t: TokenResponse | null) {
+  clearTimeout(timer);
+  session = t ? { token: t.access_token, user: t.user } : null;
+  if (t) timer = setTimeout(() => void refreshAccess(), Math.max(t.expires_in - 60, 30) * 1000);
+  emit();
+}
+
+/** 리프레시 쿠키로 새 액세스 토큰. 실패(쿠키 없음/만료/로그아웃됨)면 로그아웃 상태로 둔다. */
+export async function refreshAccess(): Promise<string | null> {
+  try {
+    accept(await authCall("/refresh"));
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 0) return session?.token ?? null; // 네트워크 오류: 상태 유지
+    accept(null);
+  }
+  return session?.token ?? null;
+}
+
+function restore(): Promise<void> {
+  if (restored) return Promise.resolve();
+  restoring ??= refreshAccess().then(() => {
+    restored = true;
+    emit();
+  });
+  return restoring;
+}
+
+export async function login(email: string, password: string) {
+  accept(await authCall("/login", { email, password }));
+}
+
+export async function signup(email: string, password: string) {
+  accept(await authCall("/signup", { email, password }));
+}
+
+export async function logout() {
+  try {
+    await authCall("/logout");
+  } finally {
+    accept(null);
   }
 }
 
-export function setToken(token: string | null) {
-  try {
-    if (token) window.localStorage.setItem(KEY, token);
-    else window.localStorage.removeItem(KEY);
-    window.dispatchEvent(new Event("stocksim-token"));
-  } catch {
-    /* 저장소를 못 쓰는 환경: 이번 화면에서만 유지 */
-  }
+/** 토큰이 거부됐을 때(401): 한 번 갱신을 시도하고, 안 되면 로그아웃 상태가 된다. */
+export function onUnauthorized() {
+  void refreshAccess();
 }
 
-/** [token, ready] — ready 전에는 아직 저장소를 읽지 않은 상태(SSR) */
+/** [token, ready] — ready 전에는 아직 로그인 복구를 시도 중이다 */
 export function useToken(): [string | null, boolean] {
-  const [token, setTok] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
+  const { token, ready } = useAuth();
+  return [token, ready];
+}
+
+export function useAuth(): { token: string | null; user: AuthUser | null; ready: boolean } {
+  const [, force] = useState(0);
   useEffect(() => {
-    const sync = () => setTok(read());
-    sync();
-    setReady(true);
-    window.addEventListener("storage", sync);
-    window.addEventListener("stocksim-token", sync);
+    const f = () => force((n) => n + 1);
+    listeners.add(f);
+    void restore();
     return () => {
-      window.removeEventListener("storage", sync);
-      window.removeEventListener("stocksim-token", sync);
+      listeners.delete(f);
     };
   }, []);
-  return [token, ready];
+  return { token: session?.token ?? null, user: session?.user ?? null, ready: restored };
 }

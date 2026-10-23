@@ -24,11 +24,21 @@ export default function TrackRecord({ items, summary }: { items: HistoryItem[]; 
       ) : (
         <div style={{ display: "grid", gap: 6 }}>
           {rows.map((r) => (
-            <div key={r.as_of_date} style={{ display: "grid", gridTemplateColumns: "84px 1fr 64px", gap: 8, alignItems: "center" }}>
+            <div
+              key={r.as_of_date}
+              style={{ display: "grid", gridTemplateColumns: "84px 1fr 64px", gap: 8, alignItems: "center" }}
+            >
               <span className="label">{r.as_of_date.slice(5)}</span>
               <div className="axis" style={{ height: 10 }} title={`범위 ${pct(r.range.q10)} ~ ${pct(r.range.q90)}`}>
                 <b style={{ left: x(0) }} />
-                <i style={{ left: x(r.range.q10), width: `calc(${x(r.range.q90)} - ${x(r.range.q10)})`, background: "var(--surface-2)", border: "0.5px solid var(--border-strong)" }} />
+                <i
+                  style={{
+                    left: x(r.range.q10),
+                    width: `calc(${x(r.range.q90)} - ${x(r.range.q10)})`,
+                    background: "var(--surface-2)",
+                    border: "0.5px solid var(--border-strong)",
+                  }}
+                />
                 {r.outcome && (
                   <i
                     style={{

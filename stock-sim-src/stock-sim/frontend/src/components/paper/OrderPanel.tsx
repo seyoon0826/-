@@ -57,14 +57,17 @@ export default function OrderPanel({
   }, [pickedPrice]);
 
   const limits = prevClose ? priceLimits(prevClose) : null;
-  const priceOk = type === "MARKET" || (typeof price === "number" && isValidTick(price) && (!limits || (price >= limits[0] && price <= limits[1])));
+  const priceOk =
+    type === "MARKET" ||
+    (typeof price === "number" && isValidTick(price) && (!limits || (price >= limits[0] && price <= limits[1])));
   const qtyOk = Number.isInteger(qty) && qty >= 1;
 
   // 예상 체결금액·수수료·세금 (GET /paper/estimate). 입력이 멈춘 뒤 0.3초 후 조회
   const [debounced, setDebounced] = useState<string | null>(null);
-  const estPath = qtyOk && priceOk
-    ? `/paper/estimate?code=${code}&side=${side}&order_type=${type}&qty=${qty}${type === "LIMIT" ? `&limit_price=${price}` : ""}`
-    : null;
+  const estPath =
+    qtyOk && priceOk
+      ? `/paper/estimate?code=${code}&side=${side}&order_type=${type}&qty=${qty}${type === "LIMIT" ? `&limit_price=${price}` : ""}`
+      : null;
   useEffect(() => {
     const t = setTimeout(() => setDebounced(estPath), 300);
     return () => clearTimeout(t);
@@ -138,7 +141,11 @@ export default function OrderPanel({
         <label className="field">
           <span className="label">가격 {limits ? `(허용 ${won(limits[0])} ~ ${won(limits[1])})` : ""}</span>
           <span className="input-row">
-            <button className="btn" aria-label="한 호가 내리기" onClick={() => typeof price === "number" && setPrice(stepDown(price))}>
+            <button
+              className="btn"
+              aria-label="한 호가 내리기"
+              onClick={() => typeof price === "number" && setPrice(stepDown(price))}
+            >
               −
             </button>
             <input
@@ -151,7 +158,11 @@ export default function OrderPanel({
               }}
               aria-invalid={!priceOk}
             />
-            <button className="btn" aria-label="한 호가 올리기" onClick={() => typeof price === "number" && setPrice(stepUp(price))}>
+            <button
+              className="btn"
+              aria-label="한 호가 올리기"
+              onClick={() => typeof price === "number" && setPrice(stepUp(price))}
+            >
               +
             </button>
           </span>
@@ -194,14 +205,18 @@ export default function OrderPanel({
               <span className="value">{krw(est.data.total)}</span>
             </div>
             {type === "MARKET" && side === "BUY" && est.data.required_reserve != null && (
-              <div className="label">시장가 매수는 상한가 기준 {krw(est.data.required_reserve)}을 잠시 예약했다가 체결 후 차액을 돌려줍니다.</div>
+              <div className="label">
+                시장가 매수는 상한가 기준 {krw(est.data.required_reserve)}을 잠시 예약했다가 체결 후 차액을 돌려줍니다.
+              </div>
             )}
           </>
         ) : (
           <span className="label">수량과 가격을 넣으면 예상 비용이 나옵니다.</span>
         )}
       </div>
-      {marketOpen === false && <div className="label">지금은 장 외 시간입니다. 주문은 다음 장 시작(09:00) 시 처리됩니다.</div>}
+      {marketOpen === false && (
+        <div className="label">지금은 장 외 시간입니다. 주문은 다음 장 시작(09:00) 시 처리됩니다.</div>
+      )}
       {error && (
         <div className="label up" role="alert">
           {error}

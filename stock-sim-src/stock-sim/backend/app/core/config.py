@@ -38,10 +38,19 @@ class Settings(BaseSettings):
     paper_max_order_qty: int = 100_000
     paper_initial_cash_options: tuple[int, ...] = (10_000_000, 30_000_000, 50_000_000, 100_000_000)
 
-    # 인증 (SPEC 6.8). 로그인/가입 API 는 Phase 8, 토큰 검증은 모의투자 API 보호를 위해 지금 둔다.
+    # AI 계정 규칙 (FR-AI-2)
+    ai_top_n: int = 5
+    ai_buy_threshold: float = 0.55
+    ai_sell_threshold: float = 0.50
+
+    # 인증 (SPEC 6.8, FR-AU)
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 30
+    refresh_token_days: int = 14
+    refresh_cookie_secure: bool = False  # HTTPS 배포(도메인 연결) 시 true
+    login_rate_per_min: int = 10  # IP 당 분당 로그인/가입 시도 (FR-AU-5)
+    cors_origins: str = "http://localhost:3000"  # 쉼표 구분 화이트리스트 (SPEC 14)
 
     # 예측 모델 (SPEC 8.4, 15). MODEL_VERSION 이 비어 있으면 모델 없이 기동한다(예측 API 는 Phase 6).
     model_version: str = ""

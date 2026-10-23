@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from app.api import paper, performance, predictions, stocks, ws  # noqa: E402
+from app.api import auth, paper, performance, predictions, stocks, ws  # noqa: E402
 from app.api.common import ApiError, api_error_handler  # noqa: E402
 from app.core.config import settings  # noqa: E402
 
@@ -28,10 +28,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="StockSim API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
-    CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"], allow_headers=["*"]
+    CORSMiddleware,
+    allow_origins=[
+        o.strip() for o in settings.cors_origins.split(",") if o.strip()
+    ],  # 화이트리스트 (SPEC 14)
+    allow_credentials=True,  # 리프레시 쿠키
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.add_exception_handler(ApiError, api_error_handler)
 
+app.include_router(auth.router, prefix=f"{API_PREFIX}/auth", tags=["auth"])
 app.include_router(stocks.router, prefix=f"{API_PREFIX}/stocks", tags=["stocks"])
 app.include_router(predictions.router, prefix=f"{API_PREFIX}/stocks", tags=["prediction"])
 app.include_router(performance.router, prefix=f"{API_PREFIX}/model", tags=["performance"])

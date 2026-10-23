@@ -1,0 +1,89 @@
+name: StockSim CI
+
+on:
+  push:
+    paths: ["stock-sim-src/stock-sim/**", ".github/workflows/stocksim-ci.yml"]
+  pull_request:
+    paths: ["stock-sim-src/stock-sim/**", ".github/workflows/stocksim-ci.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stocksim-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: stock-sim-src/stock-sim
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      db:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: stock
+          POSTGRES_PASSWORD: stock
+          POSTGRES_DB: stocksim
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U stock -d stocksim"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://stock:stock@localhost:5432/stocksim
+      REDIS_URL: redis://localhost:6379/0  # 테스트는 fakeredis 를 쓴다
+      JWT_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+      MODEL_VERSION: ""  # 테스트는 합성 데이터로 모델을 직접 학습한다
+      REQUIRE_DB: "1"  # DB 테스트가 건너뛰어지면 실패
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"  # 배포 이미지(backend/Dockerfile)와 같은 버전
+          cache: pip
+          cache-dependency-path: stock-sim-src/stock-sim/backend/requirements*.txt
+      - name: Install
+        run: pip install -r backend/requirements-dev.txt
+      - name: Lint (ruff, black)
+        working-directory: stock-sim-src/stock-sim/backend
+        run: ruff check . && black --check .
+      - name: Type check (mypy strict for paper engine)
+        working-directory: stock-sim-src/stock-sim/backend
+        run: mypy app/services/paper
+      - name: Test + coverage (backend >= 70%, paper engine >= 90%)
+        working-directory: stock-sim-src/stock-sim/backend
+        run: |
+          pytest -q --cov=app --cov-report=term --cov-fail-under=70
+          coverage report --include="app/services/paper/*" --fail-under=90
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: stock-sim-src/stock-sim/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: stock-sim-src/stock-sim/frontend/package-lock.json
+      - run: npm ci
+      - name: Lint (eslint, prettier)
+        run: npm run lint && npm run format:check
+      - name: Type check
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: docker compose build api frontend

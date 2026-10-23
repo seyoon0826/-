@@ -1,57 +1,87 @@
+# 전체 기동: docker compose up -d --build   (SPEC 14: db, redis, api, scheduler, marketdata, frontend)
+# 개발 중 DB/Redis 만: make up
+#
+# - migrate 가 먼저 한 번 돌고(alembic upgrade head), 성공해야 api/scheduler/marketdata 가 뜬다.
+# - 백엔드 이미지에는 backend/ 와 ml/src(학습-서빙 공유 피처 코드)가 들어간다. 모델 산출물(ml/models)은 읽기 전용 마운트.
+# - 도메인 연결 시: .env 의 CORS_ORIGINS, REFRESH_COOKIE_SECURE=true, NEXT_PUBLIC_API_URL(빌드 인자) 을 바꾼다.
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  image: stocksim-backend
+  env_file: [{ path: .env, required: false }]  # CI 빌드에는 .env 가 없다
+  environment:
+    DATABASE_URL: postgresql+psycopg://stock:stock@db:5432/stocksim
+    REDIS_URL: redis://redis:6379/0
+    MODEL_DIR: /ml/models
+    ML_ROOT: /ml
+  volumes: ["./ml/models:/ml/models:ro"]
+  restart: unless-stopped
+
 services:
   db:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:latest-pg16  # 기존 볼륨과 같은 확장 버전 유지 (태그 변경 시 재생성 주의)
     environment:
       POSTGRES_USER: stock
       POSTGRES_PASSWORD: stock
       POSTGRES_DB: stocksim
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stock -d stocksim"]
       interval: 5s
       retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
 
-  backend:
-    build: ./backend
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://stock:stock@db:5432/stocksim
-      REDIS_URL: redis://redis:6379/0
-      MODEL_DIR: /ml/models
-    ports: ["8000:8000"]
+  migrate:
+    <<: *backend
+    restart: "no"
+    command: alembic upgrade head
     depends_on:
       db: { condition: service_healthy }
-      redis: { condition: service_started }
-    volumes: ["./backend:/app", "./ml:/ml"]  # ml/src(피처 공유) + ml/models(산출물)
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  api:
+    <<: *backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    ports: ["8000:8000"]
+    depends_on: &after_migrate
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      retries: 10
 
   scheduler:
-    build: ./backend
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://stock:stock@db:5432/stocksim
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      db: { condition: service_healthy }
-    volumes: ["./backend:/app", "./ml:/ml"]  # ml/src(피처 공유) + ml/models(산출물)
+    <<: *backend
     command: python -m app.pipelines.scheduler
+    depends_on: *after_migrate
 
-  marketdata:  # 반드시 단일 인스턴스 (KIS 웹소켓 세션 중복 방지, SPEC 4.1)
-    build: ./backend
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://stock:stock@db:5432/stocksim
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      db: { condition: service_healthy }
-      redis: { condition: service_started }
-    volumes: ["./backend:/app"]
+  marketdata:  # 반드시 단일 인스턴스 (KIS 웹소켓 세션 중복 방지, SPEC 4.1). 체결 워커도 여기서 돈다.
+    <<: *backend
     command: python -m app.services.market_data
+    depends_on: *after_migrate
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    image: stocksim-frontend
+    ports: ["3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
 
 volumes:
   pgdata:

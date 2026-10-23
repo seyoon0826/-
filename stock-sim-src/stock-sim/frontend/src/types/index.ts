@@ -184,6 +184,8 @@ export interface Order {
   reject_reason: string | null;
   queued: boolean;
   source: "USER" | "AI";
+  prediction_id?: number | null;
+  basis?: { p_up: number; as_of_date: string } | null; // AI 주문의 근거 예측 (FR-AI-4)
   created_at: string | null;
   updated_at: string | null;
   trades?: Trade[];

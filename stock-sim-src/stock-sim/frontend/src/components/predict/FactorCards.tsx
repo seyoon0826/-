@@ -21,7 +21,10 @@ export default function FactorCards({ factors }: { factors: Factor[] }) {
               {f.label}
               <span className="sr-only">{positive ? " (상승확률 높임)" : " (상승확률 낮춤)"}</span>
             </span>
-            <div className="axis" title={`${positive ? "상승확률을 높임" : "상승확률을 낮춤"} (기여도 ${f.shap.toFixed(3)})`}>
+            <div
+              className="axis"
+              title={`${positive ? "상승확률을 높임" : "상승확률을 낮춤"} (기여도 ${f.shap.toFixed(3)})`}
+            >
               <b />
               <i
                 style={{

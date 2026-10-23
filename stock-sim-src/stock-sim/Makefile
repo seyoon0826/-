@@ -1,8 +1,12 @@
 PY := $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 up:
 	docker compose up -d db redis
+stack:  # 전체(db, redis, migrate, api, scheduler, marketdata, frontend)
+	docker compose up -d --build
 down:
 	docker compose down
+fe-check:  # 프론트 lint/format/타입
+	cd frontend && npm run lint && npm run format:check && npm run typecheck
 migrate:
 	cd backend && ../$(PY) -m alembic upgrade head
 api:

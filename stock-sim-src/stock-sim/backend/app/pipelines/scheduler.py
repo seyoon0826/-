@@ -146,6 +146,10 @@ def paper_open(session_factory: SessionFactory = SessionLocal) -> None:
     _if_trading_day("paper_open", lambda: paper_jobs.open_session_job(session_factory), session_factory)
 
 
+def ai_rebalance(session_factory: SessionFactory = SessionLocal) -> None:
+    _if_trading_day("ai_rebalance", lambda: paper_jobs.ai_rebalance_job(session_factory), session_factory)
+
+
 def paper_expire(session_factory: SessionFactory = SessionLocal) -> None:
     _if_trading_day("paper_expire", lambda: paper_jobs.expire_job(session_factory), session_factory)
 
@@ -177,6 +181,7 @@ def build_scheduler(session_factory: SessionFactory = SessionLocal) -> BlockingS
     )
     weekday = {"day_of_week": "mon-fri", "kwargs": sf, **common}
     sched.add_job(paper_open, "cron", id="paper_open", hour=9, minute=0, **weekday)
+    sched.add_job(ai_rebalance, "cron", id="ai_rebalance", hour=9, minute=5, **weekday)  # FR-AI-2
     sched.add_job(paper_expire, "cron", id="paper_expire", hour=15, minute=30, **weekday)
     sched.add_job(paper_snapshot, "cron", id="paper_snapshot", hour=16, minute=30, **weekday)
     sched.add_job(weekly_job, "cron", id="weekly", day_of_week="sun", hour=3, minute=0, kwargs=sf, **common)

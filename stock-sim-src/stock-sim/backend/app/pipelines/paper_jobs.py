@@ -1,4 +1,7 @@
-"""모의투자 정기 작업 (SPEC 12): 09:00 대기 주문 처리, 15:30 미체결 만료, 16:30 포트폴리오 스냅샷."""
+"""모의투자 정기 작업 (SPEC 12).
+
+09:00 대기 주문 처리, 09:05 AI 리밸런싱, 15:30 미체결 만료, 16:30 포트폴리오 스냅샷.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +20,8 @@ from app.models import IndexDaily, Order, PaperAccount, PortfolioSnapshot, Posit
 from app.pipelines.common import JobResult, SessionFactory, job_run
 from app.services.market_data import KST
 from app.services.market_store import orderbook_from_dict, orderbook_key, quote_from_dict, quote_key
-from app.services.paper.engine import ACTIVE, Events, expire_day_orders, process_market_event
+from app.services.paper import ai_trader
+from app.services.paper.engine import ACTIVE, Events, MarketSnapshot, expire_day_orders, process_market_event
 from app.services.paper.events import publish_sync
 from app.services.paper.market import build_snapshot
 
@@ -26,6 +30,40 @@ log = logging.getLogger(__name__)
 
 def _redis() -> redis.Redis:
     return redis.Redis.from_url(settings.redis_url, decode_responses=True)
+
+
+def redis_snapshot(r: redis.Redis) -> ai_trader.SnapshotFn:
+    """일반 주문 API 와 같은 규칙의 시세 스냅샷 (Redis 실시간 우선, 없으면 DB 종가 합성 호가)."""
+
+    def snap(s, code: str, now: datetime) -> MarketSnapshot:  # type: ignore[no-untyped-def]
+        q_raw, b_raw = r.hgetall(quote_key(code)), r.get(orderbook_key(code))
+        quote = quote_from_dict(q_raw) if q_raw else None
+        book = orderbook_from_dict(json.loads(b_raw)) if b_raw else None
+        return build_snapshot(s, code, quote, book, now)
+
+    return snap
+
+
+def ai_rebalance_job(
+    session_factory: SessionFactory = SessionLocal, r: redis.Redis | None = None, now: datetime | None = None
+) -> JobResult:
+    """09:05: AI 계좌 리밸런싱 (FR-AI-2). 계좌 하나가 실패해도 나머지는 진행한다."""
+    r = r or _redis()
+    now = now or datetime.now(UTC)
+    snap = redis_snapshot(r)
+    with job_run("ai_rebalance", session_factory) as res:
+        with session_factory() as s:
+            ids = ai_trader.ai_accounts(s)
+        for account_id in ids:
+            try:
+                orders, events = ai_trader.rebalance_account(session_factory, account_id, snap, now)
+            except Exception as e:  # noqa: BLE001 - 계좌 단위로 격리
+                res.failed.append(f"account {account_id}: {e.__class__.__name__}")
+                continue
+            publish_sync(r, events)
+            log.info("AI 계좌 %s 주문 %d건 %s", account_id, len(orders), orders)
+            res.ok += 1
+    return res
 
 
 def open_session_job(

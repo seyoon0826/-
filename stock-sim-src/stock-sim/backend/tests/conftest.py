@@ -4,6 +4,7 @@
 각 테스트는 외부 트랜잭션 안에서 실행한 뒤 롤백한다. Postgres 에 접속할 수 없으면 DB 테스트는 skip.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,8 @@ def engine():
                 conn.execute(text(f'CREATE DATABASE "{name}"'))
         admin.dispose()
     except OperationalError as e:
+        if os.getenv("REQUIRE_DB"):  # CI: DB 테스트가 조용히 건너뛰어지면 안 된다
+            raise
         pytest.skip(f"Postgres 에 접속할 수 없어 DB 테스트를 건너뜁니다: {e.__class__.__name__}")
 
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))

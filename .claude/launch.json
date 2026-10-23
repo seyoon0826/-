@@ -1,6 +1,7 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "frontend", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "stock-sim-src/stock-sim/frontend", "run", "dev"], "port": 3000 }
+    { "name": "frontend", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "stock-sim-src/stock-sim/frontend", "run", "dev"], "port": 3000 },
+    { "name": "api", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "cd stock-sim-src/stock-sim/backend && exec ../.venv/bin/uvicorn app.main:app --port 8000"], "port": 8000 }
   ]
 }

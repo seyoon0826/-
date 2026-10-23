@@ -32,7 +32,13 @@ export default function AccountSetup({ token, onDone }: { token: string; onDone:
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
         {OPTIONS.map((c) => (
-          <button key={c} className="btn" disabled={busy} onClick={() => create(c)} style={{ justifyContent: "center" }}>
+          <button
+            key={c}
+            className="btn"
+            disabled={busy}
+            onClick={() => create(c)}
+            style={{ justifyContent: "center" }}
+          >
             {c >= 100_000_000 ? "1억" : `${c / 10_000_000}천만`} 원
           </button>
         ))}

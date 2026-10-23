@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
 
 import AccountSetup from "@/components/paper/AccountSetup";
+import AiOrders from "@/components/paper/AiOrders";
 import AuthGate from "@/components/paper/AuthGate";
 import OrderPanel from "@/components/paper/OrderPanel";
 import Orderbook from "@/components/paper/Orderbook";
@@ -14,7 +15,7 @@ import ConnectionBadge, { DisconnectBanner } from "@/components/ui/ConnectionBad
 import { Empty, ErrorBox, Skeleton } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
 import { ApiError, apiRequest, swrFetcher } from "@/lib/api";
-import { setToken, useToken } from "@/lib/auth";
+import { onUnauthorized, useToken } from "@/lib/auth";
 import { arrow, krw, pctValue, tone, won } from "@/lib/format";
 import { usePaperSocket, useQuotes } from "@/lib/ws";
 import type { Accounts, OrderbookResponse, PaperPerformance, QuoteResponse, StockSummary, Trade } from "@/types";
@@ -39,7 +40,10 @@ function PaperApp({ token }: { token: string }) {
   const accounts = useSWR<Accounts>(["/paper/accounts/me", token], swrFetcher, { shouldRetryOnError: false });
   const quote = useSWR<QuoteResponse>([`/stocks/${code}/quote`, null], swrFetcher);
   const book = useSWR<OrderbookResponse>([`/stocks/${code}/orderbook`, null], swrFetcher);
-  const perfMe = useSWR<PaperPerformance>(accounts.data ? [`/paper/performance?account=me&v=${version}`, token] : null, swrFetcher);
+  const perfMe = useSWR<PaperPerformance>(
+    accounts.data ? [`/paper/performance?account=me&v=${version}`, token] : null,
+    swrFetcher,
+  );
   const perfAi = useSWR<PaperPerformance>(accounts.data ? ["/paper/performance?account=ai", token] : null, swrFetcher);
   const { quotes, books, status, conn } = useQuotes([code]);
 
@@ -53,7 +57,10 @@ function PaperApp({ token }: { token: string }) {
   const paperConn = usePaperSocket(accounts.data ? token : null, (msg) => {
     if (msg.type === "trade") {
       const t = msg.trade as Trade;
-      toast(`체결 · ${names[t.code] ?? t.code} ${t.side === "BUY" ? "매수" : "매도"} ${won(t.qty)}주 @ ${krw(t.price)}`, t.side === "BUY" ? "up" : "dn");
+      toast(
+        `체결 · ${names[t.code] ?? t.code} ${t.side === "BUY" ? "매수" : "매도"} ${won(t.qty)}주 @ ${krw(t.price)}`,
+        t.side === "BUY" ? "up" : "dn",
+      );
       refresh();
     } else if (msg.type === "order_update") {
       refresh();
@@ -63,12 +70,8 @@ function PaperApp({ token }: { token: string }) {
   });
 
   if (accounts.error instanceof ApiError && accounts.error.status === 401) {
-    return (
-      <ErrorBox
-        message="로그인이 만료됐습니다. 다시 로그인하세요."
-        onRetry={() => setToken(null)}
-      />
-    );
+    // 액세스 토큰 만료: 리프레시 쿠키로 다시 받는다. 안 되면 로그인 화면으로 바뀐다.
+    return <ErrorBox message="로그인이 만료됐습니다." onRetry={onUnauthorized} />;
   }
   if (accounts.error instanceof ApiError && accounts.error.code === "ACCOUNT_NOT_FOUND") {
     return <AccountSetup token={token} onDone={refresh} />;
@@ -86,7 +89,8 @@ function PaperApp({ token }: { token: string }) {
   const total = liveTotal ?? { total_value: me.total_value, return_pct: me.return_pct };
 
   const resetAccount = async () => {
-    if (!window.confirm("미체결 주문을 모두 취소하고 새 계좌로 시작합니다. 이전 내역은 보존됩니다. 계속할까요?")) return;
+    if (!window.confirm("미체결 주문을 모두 취소하고 새 계좌로 시작합니다. 이전 내역은 보존됩니다. 계속할까요?"))
+      return;
     try {
       await apiRequest("/paper/accounts/reset", { method: "POST", token, body: {} });
       toast("계좌를 초기화했습니다");
@@ -130,7 +134,11 @@ function PaperApp({ token }: { token: string }) {
               {arrow(changePct)} {pctValue(changePct)}
             </span>
           </div>
-          {ob ? <Orderbook asks={ob.asks} bids={ob.bids} price={price} onPick={setPicked} /> : <Skeleton lines={10} height={18} />}
+          {ob ? (
+            <Orderbook asks={ob.asks} bids={ob.bids} price={price} onPick={setPicked} />
+          ) : (
+            <Skeleton lines={10} height={18} />
+          )}
           <div className="label" style={{ marginTop: 6 }}>
             호가를 누르면 주문 가격으로 들어갑니다.
           </div>
@@ -154,7 +162,9 @@ function PaperApp({ token }: { token: string }) {
         <div className="panel">
           <div className="panel-h">
             <span>내 계좌</span>
-            <span className={`chip ${paperConn === "open" ? "chip-live" : ""}`}>{paperConn === "open" ? "체결 알림 연결됨" : "체결 알림 연결 중"}</span>
+            <span className={`chip ${paperConn === "open" ? "chip-live" : ""}`}>
+              {paperConn === "open" ? "체결 알림 연결됨" : "체결 알림 연결 중"}
+            </span>
           </div>
           <div className="label">총자산</div>
           <div className="stock-price" style={{ fontSize: 22 }}>
@@ -216,7 +226,9 @@ function PaperApp({ token }: { token: string }) {
               </div>
               <div>
                 <div className="label">승률 (실현 매도 기준)</div>
-                <div className="value">{perfMe.data.win_rate == null ? "-" : `${perfMe.data.win_rate.toFixed(1)}%`}</div>
+                <div className="value">
+                  {perfMe.data.win_rate == null ? "-" : `${perfMe.data.win_rate.toFixed(1)}%`}
+                </div>
               </div>
               <div>
                 <div className="label">매매 횟수 · 회전율</div>
@@ -228,6 +240,7 @@ function PaperApp({ token }: { token: string }) {
           </>
         )}
       </section>
+      <AiOrders token={token} names={names} version={version} />
       {!stocks.data?.length && !stocks.isLoading && <Empty title="거래할 수 있는 종목이 없습니다" />}
     </>
   );

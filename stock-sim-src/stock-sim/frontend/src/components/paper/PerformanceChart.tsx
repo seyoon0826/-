@@ -7,7 +7,6 @@ import { Empty } from "@/components/ui/States";
 import { cssVar as css } from "@/lib/theme";
 import type { PaperPerformance } from "@/types";
 
-
 /** 수익률 곡선: 나 vs KOSPI vs AI (SPEC 13.3, FR-PT-7). 매일 16:30 스냅샷 기준. */
 export default function PerformanceChart({ me, ai }: { me?: PaperPerformance; ai?: PaperPerformance }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -24,12 +23,32 @@ export default function PerformanceChart({ me, ai }: { me?: PaperPerformance; ai
       timeScale: { borderVisible: false },
     });
     const line = (color: string, data: { time: string; value: number }[], title: string) => {
-      const s = chart.addLineSeries({ color, lineWidth: 2, title, priceFormat: { type: "custom", formatter: (v: number) => `${v.toFixed(2)}%` } });
+      const s = chart.addLineSeries({
+        color,
+        lineWidth: 2,
+        title,
+        priceFormat: { type: "custom", formatter: (v: number) => `${v.toFixed(2)}%` },
+      });
       s.setData(data.map((d) => ({ time: d.time as Time, value: d.value })));
     };
-    line(css("--up"), me.curve.map((c) => ({ time: c.date, value: c.return_pct })), "나");
-    line(css("--text-3"), me.curve.filter((c) => c.kospi_return_pct != null).map((c) => ({ time: c.date, value: c.kospi_return_pct as number })), "KOSPI");
-    if (ai?.curve.length) line("#7F77DD", ai.curve.map((c) => ({ time: c.date, value: c.return_pct })), "AI");
+    line(
+      css("--up"),
+      me.curve.map((c) => ({ time: c.date, value: c.return_pct })),
+      "나",
+    );
+    line(
+      css("--text-3"),
+      me.curve
+        .filter((c) => c.kospi_return_pct != null)
+        .map((c) => ({ time: c.date, value: c.kospi_return_pct as number })),
+      "KOSPI",
+    );
+    if (ai?.curve.length)
+      line(
+        "#7F77DD",
+        ai.curve.map((c) => ({ time: c.date, value: c.return_pct })),
+        "AI",
+      );
     chart.timeScale().fitContent();
     return () => chart.remove();
   }, [me, ai, has]);

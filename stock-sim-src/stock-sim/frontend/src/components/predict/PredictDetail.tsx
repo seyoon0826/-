@@ -29,9 +29,13 @@ import type {
 export default function PredictDetail({ code }: { code: string }) {
   const [range, setRange] = useState<Range>("6M");
   const stocks = useSWR<StockSummary[]>(["/stocks", null], swrFetcher);
-  const chart = useSWR<ChartResponse>([`/stocks/${code}/chart?range=${range}`, null], swrFetcher, { keepPreviousData: true });
+  const chart = useSWR<ChartResponse>([`/stocks/${code}/chart?range=${range}`, null], swrFetcher, {
+    keepPreviousData: true,
+  });
   const quote = useSWR<QuoteResponse>([`/stocks/${code}/quote`, null], swrFetcher);
-  const pred = useSWR<Envelope<Prediction>>([`/stocks/${code}/prediction`, null], swrEnvelope, { shouldRetryOnError: false });
+  const pred = useSWR<Envelope<Prediction>>([`/stocks/${code}/prediction`, null], swrEnvelope, {
+    shouldRetryOnError: false,
+  });
   const hist = useSWR<Envelope<HistoryItem[]>>([`/stocks/${code}/prediction/history?limit=20`, null], swrEnvelope);
   const { quotes, status, conn } = useQuotes([code]);
 
@@ -80,7 +84,9 @@ export default function PredictDetail({ code }: { code: string }) {
         </div>
         <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
           <ConnectionBadge conn={conn} status={status} />
-          <span className="label">{live ? `실시간 ${kstDateTime(live.ts)}` : quote.data ? `기준 ${kstDateTime(quote.data.ts)}` : ""}</span>
+          <span className="label">
+            {live ? `실시간 ${kstDateTime(live.ts)}` : quote.data ? `기준 ${kstDateTime(quote.data.ts)}` : ""}
+          </span>
         </div>
       </section>
 

@@ -88,7 +88,10 @@ export function useQuotes(codes: string[]) {
     const msg = m as WsQuote | WsBook | WsStatusMsg | { type: string };
     if (msg.type === "quote") {
       const q = msg as WsQuote;
-      setQuotes((prev) => ({ ...prev, [q.code]: { price: q.price, change_pct: q.change_pct, volume: q.volume, ts: q.ts } }));
+      setQuotes((prev) => ({
+        ...prev,
+        [q.code]: { price: q.price, change_pct: q.change_pct, volume: q.volume, ts: q.ts },
+      }));
     } else if (msg.type === "orderbook") {
       const b = msg as WsBook;
       setBooks((prev) => ({ ...prev, [b.code]: { asks: b.asks, bids: b.bids, ts: b.ts } }));

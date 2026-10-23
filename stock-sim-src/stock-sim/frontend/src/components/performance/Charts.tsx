@@ -34,7 +34,14 @@ export function CalibrationChart({ bins }: { bins: CalibrationBin[] }) {
         />
       )}
       {pts.map((b) => (
-        <circle key={b.bin} cx={sx(b.p_mean as number)} cy={sy(b.actual as number)} r={2 + 5 * Math.sqrt(b.n / maxN)} fill="var(--up)" opacity="0.75">
+        <circle
+          key={b.bin}
+          cx={sx(b.p_mean as number)}
+          cy={sy(b.actual as number)}
+          r={2 + 5 * Math.sqrt(b.n / maxN)}
+          fill="var(--up)"
+          opacity="0.75"
+        >
           <title>{`예측 ${Math.round((b.p_mean as number) * 100)}% → 실제 ${Math.round((b.actual as number) * 100)}% (n=${b.n})`}</title>
         </circle>
       ))}
@@ -57,7 +64,14 @@ export function HitTrend({ daily }: { daily: { date: string; cumulative_hit_rate
       <title>누적 적중률 추이</title>
       {[0, 0.5, 1].map((t) => (
         <g key={t}>
-          <line x1={P} x2={W - P} y1={sy(t)} y2={sy(t)} stroke={t === 0.5 ? "var(--text-3)" : "var(--border)"} strokeDasharray={t === 0.5 ? "4 3" : undefined} />
+          <line
+            x1={P}
+            x2={W - P}
+            y1={sy(t)}
+            y2={sy(t)}
+            stroke={t === 0.5 ? "var(--text-3)" : "var(--border)"}
+            strokeDasharray={t === 0.5 ? "4 3" : undefined}
+          />
           <text x={P - 6} y={sy(t) + 3} fontSize="9" textAnchor="end" fill="var(--text-2)">
             {Math.round(t * 100)}%
           </text>
@@ -66,7 +80,12 @@ export function HitTrend({ daily }: { daily: { date: string; cumulative_hit_rate
       {daily.map((d, i) => (
         <circle key={d.date} cx={x(i)} cy={sy(d.hit_rate)} r="1.6" fill="var(--text-3)" />
       ))}
-      <polyline fill="none" stroke="var(--hit)" strokeWidth="2" points={daily.map((d, i) => `${x(i)},${sy(d.cumulative_hit_rate)}`).join(" ")} />
+      <polyline
+        fill="none"
+        stroke="var(--hit)"
+        strokeWidth="2"
+        points={daily.map((d, i) => `${x(i)},${sy(d.cumulative_hit_rate)}`).join(" ")}
+      />
       <text x={P} y={H - 8} fontSize="9" fill="var(--text-2)">
         {daily[0].date}
       </text>

@@ -26,7 +26,6 @@ export interface Forecast {
   q90: number[];
 }
 
-
 /** 다음 n 영업일 (YYYY-MM-DD). 휴장일은 모르므로 표시용. */
 export function nextBusinessDays(from: string, n: number): string[] {
   const d = new Date(`${from}T00:00:00Z`);
@@ -120,7 +119,9 @@ export default function PriceChart({
       priceLineVisible: false,
     });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-    vol.setData(candles.map((c) => ({ time: c.time as Time, value: c.volume, color: `${c.close >= c.open ? up : dn}73` })));
+    vol.setData(
+      candles.map((c) => ({ time: c.time as Time, value: c.volume, color: `${c.close >= c.open ? up : dn}73` })),
+    );
 
     const dates = new Set(candles.map((c) => c.time));
     const byDate = new Map<string, ChartMarker[]>();
