@@ -75,12 +75,12 @@ export default function PerformanceView() {
 
   return (
     <>
-      <div
-        className="panel"
-        style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}
-      >
-        <span className="value">모델 성적표</span>
-        <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <header className="screen-head">
+        <div>
+          <h1>모델 성적표</h1>
+          <p>예측이 실제로 얼마나 맞았는지, 단순한 기준 전략 세 가지와 나란히 비교합니다.</p>
+        </div>
+        <span style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
           <span className="seg" role="group" aria-label="결과 범위">
             <button aria-pressed={scope === "live"} onClick={() => setScope("live")}>
               실제 운영(live)
@@ -102,7 +102,7 @@ export default function PerformanceView() {
             ))}
           </span>
         </span>
-      </div>
+      </header>
 
       {isLoading ? (
         <div className="panel">
@@ -120,7 +120,7 @@ export default function PerformanceView() {
             {scope === "live"
               ? "실제 운영 중 예측 후 5거래일이 지나 결과가 확인된 것만 집계합니다."
               : "학습 때 시간 순서대로 나눠 검증한 결과(walk-forward)입니다. 실제 운영 결과와 다를 수 있습니다."}{" "}
-            모델 {perf.model_version} · 표본 {perf.n.toLocaleString("ko-KR")}건
+            모델 {perf.model_version}, 표본 {perf.n.toLocaleString("ko-KR")}건
           </div>
           {note && perf.n === 0 ? (
             <div className="panel">
@@ -131,7 +131,7 @@ export default function PerformanceView() {
               <section className="panel">
                 <div className="panel-h">
                   <span>모델 vs 베이스라인</span>
-                  <span>★ 지표별 가장 좋은 쪽</span>
+                  <span>지표별 가장 좋은 값은 굵게 밑줄</span>
                 </div>
                 <div className="table-wrap">
                   <table className="table">
@@ -220,7 +220,7 @@ export default function PerformanceView() {
             <div className="panel-h">
               <span>지표 읽는 법</span>
             </div>
-            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8, fontSize: 13 }}>
+            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8, fontSize: 15 }}>
               {METRICS.map((m) => (
                 <li key={m.key}>
                   <b>{m.label}</b>: {m.help}

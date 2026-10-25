@@ -17,15 +17,24 @@ from app.ml.infer import ModelBundle
 
 
 class Explainer:
+    """시드 앙상블의 SHAP = 모델별 SHAP 의 평균 (평균 로그 오즈를 그대로 분해한다)."""
+
     def __init__(self, bundle: ModelBundle) -> None:
         self.bundle = bundle
-        self._tree = shap.TreeExplainer(bundle.up_clf)
+        self._trees = [shap.TreeExplainer(b) for b in bundle.up_clf.boosters]
+
+    @property
+    def expected_value(self) -> float:
+        return float(np.mean([np.ravel(t.expected_value)[-1] for t in self._trees]))
 
     def shap_values(self, X: pd.DataFrame) -> np.ndarray:
-        sv = self._tree.shap_values(X[self.bundle.features])
-        if isinstance(sv, list):  # 일부 버전은 이진 분류에서 [음성, 양성] 목록을 준다
-            sv = sv[-1]
-        return np.asarray(sv)
+        out = []
+        for t in self._trees:
+            sv = t.shap_values(X[self.bundle.features])
+            if isinstance(sv, list):  # 일부 버전은 이진 분류에서 [음성, 양성] 목록을 준다
+                sv = sv[-1]
+            out.append(np.asarray(sv))
+        return np.mean(out, axis=0)
 
     def top_factors(self, X: pd.DataFrame, k: int = 5) -> list[list[dict[str, Any]]]:
         """행마다 SHAP 절댓값 상위 k 개."""

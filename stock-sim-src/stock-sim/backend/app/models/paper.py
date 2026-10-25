@@ -31,11 +31,26 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str | None] = mapped_column(String(255), unique=True)  # 카카오는 이메일 동의가 선택
+    password_hash: Mapped[str | None] = mapped_column(String(255))  # 소셜로만 가입하면 없음
+    display_name: Mapped[str | None] = mapped_column(String(100))
     token_version: Mapped[int] = mapped_column(
         Integer, server_default="0"
     )  # 로그아웃 시 +1 (리프레시 무효화)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OAuthAccount(Base):
+    """소셜 로그인 연결 (카카오, 구글). 같은 (provider, subject) 는 항상 같은 사용자."""
+
+    __tablename__ = "oauth_accounts"
+    __table_args__ = (UniqueConstraint("provider", "subject", name="uq_oauth_provider_subject"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(16))
+    subject: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

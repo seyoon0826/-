@@ -6,20 +6,19 @@ import useSWR from "swr";
 
 import PriceChart, { nextBusinessDays, type Forecast, type Range } from "@/components/chart/PriceChart";
 import FactorCards from "@/components/predict/FactorCards";
-import { ProbabilityGauge, RangeCard, SkillNotice } from "@/components/predict/PredictionPanel";
+import ForecastHero from "@/components/predict/Forecast";
 import Scenarios from "@/components/predict/Scenarios";
 import TrackRecord from "@/components/predict/TrackRecord";
 import ConnectionBadge, { DisconnectBanner } from "@/components/ui/ConnectionBadge";
 import { Empty, ErrorBox, Skeleton } from "@/components/ui/States";
 import { ApiError, swrEnvelope, swrFetcher, type Envelope } from "@/lib/api";
-import { arrow, kstDateTime, pctValue, tone, won } from "@/lib/format";
+import { kstDateTime, pctValue, tone, won } from "@/lib/format";
 import { useQuotes } from "@/lib/ws";
 import type {
   Candle,
   ChartResponse,
   HistoryItem,
   HistorySummary,
-  ModelSkill,
   Prediction,
   QuoteResponse,
   StockSummary,
@@ -63,32 +62,52 @@ export default function PredictDetail({ code }: { code: string }) {
   if (notFound) return <Empty title="알 수 없는 종목입니다">종목 코드를 확인하세요.</Empty>;
   const predMissing = pred.error instanceof ApiError && pred.error.code === "PREDICTION_NOT_FOUND";
 
+  const forecastBlock = pred.isLoading ? (
+    <div className="panel">
+      <Skeleton lines={4} />
+    </div>
+  ) : predMissing ? (
+    <div className="panel">
+      <Empty title="아직 예측이 없습니다">다음 장 마감(15:40) 뒤에 만들어집니다.</Empty>
+    </div>
+  ) : pred.error ? (
+    <ErrorBox message="예측을 불러오지 못했습니다." onRetry={() => pred.mutate()} />
+  ) : p ? (
+    <ForecastHero p={p} name={name} />
+  ) : null;
+
   return (
     <>
       <DisconnectBanner conn={conn} />
-      <section className="panel stock-head">
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 18, fontWeight: 600 }}>{name}</span>
-          <span className="label">{code} · KOSPI</span>
+      <header className="screen-head stock-head-row">
+        <div>
+          <h1>
+            {name} <span className="code">{code}</span>
+          </h1>
           {price != null ? (
-            <>
-              <span className={`stock-price ${tone(changePct)}`}>{won(price)}</span>
+            <p className="stock-quote">
+              <span className="stock-price">{won(price)}원</span>{" "}
               <span className={tone(changePct)}>
-                {arrow(changePct)} {prevClose != null ? won(Math.abs(price - prevClose)) : ""} &nbsp;
-                {pctValue(changePct)}
+                {prevClose != null ? `${price - prevClose >= 0 ? "+" : "-"}${won(Math.abs(price - prevClose))}원 ` : ""}
+                ({pctValue(changePct)})
+              </span>{" "}
+              <span className="label">
+                {live ? `실시간 ${kstDateTime(live.ts)}` : quote.data ? `${kstDateTime(quote.data.ts)} 기준` : ""}
               </span>
-            </>
+            </p>
           ) : (
-            <span className="skeleton" style={{ width: 120, height: 24 }} />
+            <span className="skeleton" style={{ display: "block", width: 220, height: 24, marginTop: 8 }} />
           )}
         </div>
-        <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+        <div className="head-actions">
           <ConnectionBadge conn={conn} status={status} />
-          <span className="label">
-            {live ? `실시간 ${kstDateTime(live.ts)}` : quote.data ? `기준 ${kstDateTime(quote.data.ts)}` : ""}
-          </span>
+          <Link className="btn btn-primary btn-buy" href={`/paper?code=${code}`}>
+            이 종목 모의 매수
+          </Link>
         </div>
-      </section>
+      </header>
+
+      {forecastBlock}
 
       <section className="panel">
         {chart.error ? (
@@ -109,26 +128,8 @@ export default function PredictDetail({ code }: { code: string }) {
         )}
       </section>
 
-      {pred.isLoading ? (
-        <div className="panel">
-          <Skeleton lines={4} />
-        </div>
-      ) : predMissing ? (
-        <div className="panel">
-          <Empty title="아직 예측이 없습니다">다음 장 마감(15:40) 후 생성됩니다.</Empty>
-        </div>
-      ) : pred.error ? (
-        <ErrorBox message="예측을 불러오지 못했습니다." onRetry={() => pred.mutate()} />
-      ) : p ? (
+      {p && (
         <>
-          <div className="label">
-            기준일 {p.as_of_date} 종가 기준 · 모델 {p.model_version}
-          </div>
-          <SkillNotice skill={pred.data?.meta.skill as ModelSkill | undefined} />
-          <section className="grid-2">
-            <ProbabilityGauge p_up={p.p_up} p_outperform={p.p_outperform} />
-            <RangeCard close={p.close} range={p.range} />
-          </section>
           <section className="grid-2">
             <FactorCards factors={p.factors} />
             <TrackRecord
@@ -140,10 +141,12 @@ export default function PredictDetail({ code }: { code: string }) {
           <section className="panel">
             <div className="panel-h">
               <span>관련 뉴스</span>
-              <span>기준일 직전 3거래일 · 관련도 0.6 이상</span>
+              <span>기준일 전 3거래일, 관련도 0.6 이상</span>
             </div>
             {p.news.length === 0 ? (
-              <Empty title="관련 뉴스가 없습니다" />
+              <p className="label" style={{ margin: 0 }}>
+                기준일 전 3거래일 동안 이 종목과 관련된 뉴스가 없습니다.
+              </p>
             ) : (
               p.news.map((n) => (
                 <a className="news-item" href={n.url} key={n.url} target="_blank" rel="noreferrer">
@@ -153,14 +156,11 @@ export default function PredictDetail({ code }: { code: string }) {
               ))
             )}
           </section>
+          <p className="label">
+            {p.as_of_date} 종가로 만든 예측입니다. 모델 {p.model_version}
+          </p>
         </>
-      ) : null}
-
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Link className="btn btn-primary btn-buy" href={`/paper?code=${code}`}>
-          이 종목 모의 매수
-        </Link>
-      </div>
+      )}
     </>
   );
 }

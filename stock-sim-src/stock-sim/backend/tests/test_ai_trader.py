@@ -221,3 +221,37 @@ def test_ai_orders_api_shows_basis_prediction_FR_AI_4(paper, sf, monkeypatch):
     assert mine == []  # 사용자 계좌 주문과 섞이지 않는다
     assert items[0]["source"] == "AI" and items[0]["prediction_id"] == ids["005930"]
     assert items[0]["basis"] == {"p_up": 0.62, "as_of_date": "2026-10-20"}
+
+
+# ---------------------------------------------------------------- 순위 모드 (AI_MODE=rank, 기본값)
+RANK = ai.Rules(top_n=2, buy_threshold=0.55, sell_threshold=0.50, mode="rank", sell_rank=3)
+
+
+def test_rank_mode_buys_top_n_even_when_all_probabilities_are_low():
+    """보정된 확률이 모두 기준선(43%) 근처여도 순위 상위 N 을 산다."""
+    sig = {
+        c: ai.Signal(c, p, i)
+        for i, (c, p) in enumerate([("A", 0.431), ("B", 0.430), ("C", 0.428), ("D", 0.425)])
+    }
+    prices = {c: 1_000 for c in sig}
+    p = ai.plan({}, prices, 1_000_000, sig, RANK)
+    assert [(x.side, x.code, x.qty) for x in p] == [("BUY", "A", 500), ("BUY", "B", 500)]
+    assert p[0].reason.startswith("순위 1/4")
+
+
+def test_rank_mode_sells_only_when_out_of_sell_rank_band():
+    sig = {
+        c: ai.Signal(c, p, i) for i, (c, p) in enumerate([("A", 0.44), ("B", 0.43), ("C", 0.42), ("D", 0.41)])
+    }
+    prices = {c: 1_000 for c in sig}
+    p = ai.plan({"C": 100, "D": 100}, prices, 1_000_000, sig, RANK)
+    sides = [(x.side, x.code) for x in p]
+    assert ("SELL", "D") in sides and ("SELL", "C") not in sides  # C 는 3위(매도 기준 이내)라 유지
+    assert sides[0] == ("SELL", "D")  # 매도가 먼저
+
+
+def test_settings_default_mode_is_rank():
+    from app.core.config import Settings
+
+    r = ai.Rules.from_settings()
+    assert Settings.model_fields["ai_mode"].default == "rank" and r.sell_rank >= r.top_n

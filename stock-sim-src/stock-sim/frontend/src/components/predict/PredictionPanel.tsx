@@ -1,4 +1,5 @@
 import { pct, pct0, won } from "@/lib/format";
+import RankLadder, { TOP_N } from "@/components/predict/RankLadder";
 import type { ModelSkill, Prediction } from "@/types";
 
 function arc(f: number, cx = 80, cy = 78, r = 58) {
@@ -8,24 +9,57 @@ function arc(f: number, cx = 80, cy = 78, r = 58) {
 
 /** 예측력 낮음 안내 (오프라인 검증에서 기준선을 확실히 넘지 못한 모델) */
 export function SkillNotice({ skill }: { skill?: ModelSkill | null }) {
-  if (!skill || skill.level !== "low") return null;
+  if (!skill || skill.level === "ok") return null;
+  const stats = `순위상관 IC ${skill.ic.toFixed(3)}, IC 양수 구간 ${skill.ic_positive_folds}/${skill.folds}, Brier skill ${
+    skill.brier_skill >= 0 ? "+" : ""
+  }${skill.brier_skill.toFixed(3)}`;
+  if (skill.level === "ranking") {
+    return (
+      <div className="banner" role="note">
+        <b>예측력 안내.</b> 과거 검증(walk-forward)에서 이 모델은 종목 간 상대 순위를 약하게 맞혔지만, 상승확률의 절대
+        수준은 &lsquo;과거 상승 비율&rsquo;과 비슷했습니다 ({stats}). 종목끼리 비교하는 용도로 참고하세요.
+      </div>
+    );
+  }
   return (
     <div className="banner" role="note">
-      <b>예측력 낮음</b> · 과거 검증(walk-forward)에서 이 모델은 &lsquo;과거 상승 비율&rsquo;을 그대로 쓰는 기준선보다
-      뚜렷하게 낫지 않았습니다 (Brier skill {skill.brier_skill >= 0 ? "+" : ""}
-      {skill.brier_skill.toFixed(3)}, 순위상관 IC {skill.ic.toFixed(3)}, IC 양수 구간 {skill.ic_positive_folds}/
-      {skill.folds}). 확률과 범위는 참고용으로만 보세요.
+      <b>예측력 낮음.</b> 과거 검증(walk-forward)에서 이 모델은 &lsquo;과거 상승 비율&rsquo;을 그대로 쓰는 기준선보다
+      뚜렷하게 낫지 않았습니다 ({stats}). 확률과 범위는 참고용으로만 보세요.
     </div>
   );
 }
 
-/** 예측 카드: P(up) 게이지, KOSPI 초과 확률 (SPEC 13.2-3) */
-export function ProbabilityGauge({ p_up, p_outperform }: Pick<Prediction, "p_up" | "p_outperform">) {
+/** 예측 카드 (SPEC 13.2-3). 이 모델의 예측력은 종목 간 순위에 있어(IC) 순위를 크게, 보정된 확률은 작게 보여준다.
+ * 순위가 없으면(예전 예측) 상승확률 게이지로 대신한다. */
+export function ProbabilityGauge({
+  p_up,
+  p_outperform,
+  rank,
+}: Pick<Prediction, "p_up" | "p_outperform"> & { rank?: Prediction["rank"] }) {
+  const outperform = p_outperform == null ? "코스피 초과 확률 없음" : `코스피를 앞설 확률 ${pct0(p_outperform)}`;
+  if (rank?.position != null && rank.of != null) {
+    const top = rank.position <= TOP_N;
+    return (
+      <div className="panel rank-card">
+        <div className="panel-h">
+          <span>5거래일 뒤 상대 순위</span>
+        </div>
+        <div className="rank-hero">
+          <span className={`rank-hero-num${top ? " is-top" : ""}`}>{rank.position}</span>
+          <span className="rank-hero-of">위 / {rank.of}종목</span>
+        </div>
+        <RankLadder rank={rank.position} of={rank.of} large />
+        <p className="rank-card-note">
+          {top ? `상위 ${TOP_N}위 안이라 AI 계정이 다음 거래일에 삽니다. ` : ""}
+          상승확률 {pct0(p_up)}, {outperform}.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="panel">
       <div className="panel-h">
         <span>5거래일 상승확률</span>
-        <span className="chip">모델 추정</span>
       </div>
       <svg viewBox="0 0 160 96" width="100%" style={{ maxHeight: 140 }} role="img">
         <title>{`상승확률 ${pct0(p_up)}`}</title>
@@ -35,7 +69,7 @@ export function ProbabilityGauge({ p_up, p_outperform }: Pick<Prediction, "p_up"
           {pct0(p_up)}
         </text>
         <text x="80" y="90" textAnchor="middle" fontSize="10" fill="var(--text-2)">
-          {p_outperform == null ? "KOSPI 초과 확률 없음" : `KOSPI 초과 ${pct0(p_outperform)}`}
+          {outperform}
         </text>
       </svg>
     </div>
@@ -51,7 +85,7 @@ export function RangeCard({ close, range }: Pick<Prediction, "close" | "range">)
     <div className="panel">
       <div className="panel-h">
         <span>예상 가격 범위 (5거래일 뒤)</span>
-        <span>하단 · 중앙 · 상단</span>
+        <span>하단, 중앙, 상단</span>
       </div>
       <svg viewBox="0 0 300 100" width="100%" style={{ maxHeight: 150 }} role="img">
         <title>{`예상 범위 ${won(range.price_low)}원에서 ${won(range.price_high)}원`}</title>

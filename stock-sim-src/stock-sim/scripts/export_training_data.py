@@ -24,7 +24,7 @@ from app.core.db import engine  # noqa: E402
 OUT = ROOT / "data"
 PRICES = (
     "SELECT p.code, p.date, p.open, p.high, p.low, p.close, p.volume, p.value, p.foreign_net, p.inst_net, "
-    "p.market_cap FROM prices_daily p JOIN stocks s ON s.code = p.code {where} ORDER BY p.code, p.date"
+    "p.market_cap, p.per, p.pbr, p.div_yield FROM prices_daily p JOIN stocks s ON s.code = p.code {where} ORDER BY p.code, p.date"
 )
 QUERIES = {
     "prices_daily.csv": PRICES.format(where="WHERE s.active"),

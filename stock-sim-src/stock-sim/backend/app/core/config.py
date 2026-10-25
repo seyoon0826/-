@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     ai_top_n: int = 5
     ai_buy_threshold: float = 0.55
     ai_sell_threshold: float = 0.50
+    ai_mode: Literal["rank", "probability"] = "rank"  # rank: 순위 상위 N 매수, AI_SELL_RANK 밖이면 매도
+    ai_sell_rank: int = 10
 
     # 인증 (SPEC 6.8, FR-AU)
     jwt_secret: str = ""
@@ -51,6 +53,16 @@ class Settings(BaseSettings):
     refresh_cookie_secure: bool = False  # HTTPS 배포(도메인 연결) 시 true
     login_rate_per_min: int = 10  # IP 당 분당 로그인/가입 시도 (FR-AU-5)
     cors_origins: str = "http://localhost:3000"  # 쉼표 구분 화이트리스트 (SPEC 14)
+
+    # 소셜 로그인 (카카오, 구글). 키가 비어 있으면 그 제공자 버튼을 감춘다.
+    kakao_rest_api_key: str = ""  # 카카오 디벨로퍼스 > 앱 키 > REST API 키 (= client_id)
+    kakao_client_secret: str = ""  # 카카오 로그인 > 보안 > Client Secret (기본 사용 설정)
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    api_public_url: str = (
+        "http://localhost:8000"  # 콜백 주소: {api_public_url}/api/v1/auth/oauth/{provider}/callback
+    )
+    frontend_url: str = "http://localhost:3000"  # 로그인 후 돌아갈 프론트 주소
 
     # 예측 모델 (SPEC 8.4, 15). MODEL_VERSION 이 비어 있으면 모델 없이 기동한다(예측 API 는 Phase 6).
     model_version: str = ""

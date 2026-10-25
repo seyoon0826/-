@@ -23,8 +23,15 @@ import type { Accounts, OrderbookResponse, PaperPerformance, QuoteResponse, Stoc
 /** 모의투자 (SPEC 13.3). 로그인 필요. */
 export default function PaperView() {
   const [token, ready] = useToken();
+  const params = useSearchParams();
   if (!ready) return <Skeleton lines={6} />;
-  if (!token) return <AuthGate />;
+  if (!token) {
+    // 소셜 로그인 뒤 같은 화면(고른 종목, 고른 처음 자금)으로 돌아오게. login_error 는 넘기지 않는다
+    const keep = new URLSearchParams(params?.toString() ?? "");
+    keep.delete("login_error");
+    const q = keep.toString();
+    return <AuthGate next={`/paper${q ? `?${q}` : ""}`} />;
+  }
   return <PaperApp token={token} />;
 }
 
@@ -58,7 +65,7 @@ function PaperApp({ token }: { token: string }) {
     if (msg.type === "trade") {
       const t = msg.trade as Trade;
       toast(
-        `체결 · ${names[t.code] ?? t.code} ${t.side === "BUY" ? "매수" : "매도"} ${won(t.qty)}주 @ ${krw(t.price)}`,
+        `${names[t.code] ?? t.code} ${won(t.qty)}주 ${t.side === "BUY" ? "매수" : "매도"} 체결 (${krw(t.price)})`,
         t.side === "BUY" ? "up" : "dn",
       );
       refresh();
@@ -205,11 +212,11 @@ function PaperApp({ token }: { token: string }) {
 
       <section className="panel">
         <div className="panel-h">
-          <span>성과 · 나 vs KOSPI vs AI</span>
+          <span>내 수익률과 코스피, AI 비교</span>
           <span style={{ display: "flex", gap: 10 }}>
             <span className="up">● 나</span>
             <span style={{ color: "var(--text-3)" }}>● KOSPI</span>
-            <span style={{ color: "#7F77DD" }}>● AI</span>
+            <span style={{ color: "var(--signal)" }}>● AI</span>
           </span>
         </div>
         {perfMe.error ? (
@@ -231,9 +238,9 @@ function PaperApp({ token }: { token: string }) {
                 </div>
               </div>
               <div>
-                <div className="label">매매 횟수 · 회전율</div>
+                <div className="label">매매 횟수와 회전율</div>
                 <div className="value">
-                  {perfMe.data.trade_count}회 · {perfMe.data.turnover.toFixed(2)}
+                  {perfMe.data.trade_count}회, 회전율 {perfMe.data.turnover.toFixed(2)}
                 </div>
               </div>
             </div>

@@ -40,7 +40,7 @@ export default function PaperTabs({
   const cancel = async (o: Order) => {
     try {
       await apiRequest(`/paper/orders/${o.id}`, { method: "DELETE", token });
-      toast(`취소 · ${nm(o.code)} ${o.qty - o.filled_qty}주`);
+      toast(`${nm(o.code)} ${o.qty - o.filled_qty}주 주문을 취소했습니다`);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "취소하지 못했습니다", "err");
     }

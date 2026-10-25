@@ -152,7 +152,10 @@ def test_chart_markers_max_3_per_day_by_relevance_FR_ST_4(client, db, seeded):
     assert all(x["title"] != "기사0" for x in same_day)  # 관련도가 가장 낮은 기사 제외
 
 
-def test_stock_list_has_price_and_latest_prediction_FR_ST_2(client, db, seeded):
+def test_stock_list_has_price_and_latest_prediction_FR_ST_2(client, db, seeded, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "model_version", "v1")  # 서빙 중인 모델의 예측만 보여준다
     db.add(
         Prediction(
             code="005930",

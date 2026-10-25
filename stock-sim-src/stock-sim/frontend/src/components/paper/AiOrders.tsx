@@ -16,7 +16,7 @@ const STATUS: Record<string, string> = {
   REJECTED: "거부",
 };
 
-/** AI 계좌 최근 주문과 근거 예측 (FR-AI-2/4). 규칙: 상승확률 상위 5종목 중 55% 이상 매수, 50% 미만이면 매도. */
+/** AI 계좌 최근 주문과 근거 예측 (FR-AI-2/4). 규칙(AI_MODE=rank): 상승확률 순위 상위 5종목 매수, 10위 밖이면 매도. */
 export default function AiOrders({
   token,
   names,
@@ -31,14 +31,16 @@ export default function AiOrders({
     <section className="panel">
       <div className="panel-h">
         <span>AI 최근 매매</span>
-        <span className="label">매일 09:05 · 상위 5종목 중 상승확률 55% 이상 매수, 50% 미만 매도</span>
+        <span className="label">매일 09:05에 순위 상위 5종목을 사고, 10위 밖으로 밀리면 팝니다</span>
       </div>
       {q.error ? (
         <ErrorBox message="AI 주문을 불러오지 못했습니다." onRetry={() => q.mutate()} />
       ) : !q.data ? (
         <Skeleton lines={3} />
       ) : q.data.length === 0 ? (
-        <Empty title="아직 AI 주문이 없습니다">상승확률 55% 이상인 종목이 생기면 다음 거래일 09:05에 매수합니다.</Empty>
+        <Empty title="아직 AI 주문이 없습니다">
+          예측이 생기면 다음 거래일 09:05에 순위 상위 5종목을 같은 비중으로 삽니다.
+        </Empty>
       ) : (
         <div className="table-wrap">
           <table className="table">

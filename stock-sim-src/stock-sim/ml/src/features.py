@@ -42,6 +42,8 @@ PRICE_COLUMNS = [
     "inst_net",
     "market_cap",
 ]
+# 선택 컬럼: KRX PER/PBR/배당수익률(%) — 없으면(합성 데이터, 펀드 등) 피처가 결측
+VALUATION_COLUMNS = ["per", "pbr", "div_yield"]
 
 # build_features 가 계산하는 원래 값(근거 문장에 쓴다).
 RAW_FEATURES: list[str] = [
@@ -74,6 +76,10 @@ RAW_FEATURES: list[str] = [
     "flow_coverage_5d",
     "flow_coverage_20d",
     "halted_20d",
+    # 밸류에이션 (KRX 일별 PER/PBR/배당수익률. 그날 종가 기준이라 장 마감 후 알 수 있다)
+    "earn_yield",
+    "book_to_price",
+    "div_yield",
     # 시장
     "kospi_ret_5d",
     "kospi_ret_20d",
@@ -128,6 +134,9 @@ _RAW_LABELS: dict[str, str] = {
     "flow_coverage_5d": "최근 5일 수급 데이터 확보율 {ratio0}",
     "flow_coverage_20d": "최근 20일 수급 데이터 확보율 {ratio0}",
     "halted_20d": "최근 20거래일 중 거래정지 {num0}일",
+    "earn_yield": "이익수익률(1/PER) {ratio1}",
+    "book_to_price": "PBR 의 역수(순자산/시총) {num2}",
+    "div_yield": "배당수익률 {ratio1}",
     "kospi_ret_5d": "KOSPI 최근 5거래일 {pct} {updown}",
     "kospi_ret_20d": "KOSPI 최근 20거래일 {pct} {updown}",
     "kospi_vol_20d": "KOSPI 20일 변동성 {ratio1}",
@@ -227,6 +236,11 @@ def _per_code(g: pd.DataFrame) -> pd.DataFrame:
     for w in (5, 20):
         out[f"flow_coverage_{w}d"] = fx.rolling(w, min_periods=1).count() / w
     out["halted_20d"] = (v == 0).astype(float).rolling(20, min_periods=1).sum()
+    # PER/PBR 이 0 이하(적자·자본잠식·미산출)면 역수가 의미 없어 결측. 역수를 써서 순위가 '싼 정도'와 같은 방향이 된다
+    per, pbr = g["per"].astype(float), g["pbr"].astype(float)
+    out["earn_yield"] = (1 / per).where(per > 0)
+    out["book_to_price"] = (1 / pbr).where(pbr > 0)
+    out["div_yield"] = g["div_yield"].astype(float) / 100
     return out
 
 
@@ -271,29 +285,67 @@ def _market_features(
     return cal.drop(columns=["usdkrw"])
 
 
+def in_universe(df: pd.DataFrame, members: pd.DataFrame) -> pd.DataFrame:
+    """시점별 유니버스(point-in-time) 필터. members: [date(그 달 첫 거래일), code] — 그 달 내내 명단으로 쓴다.
+    명단은 그 달 첫 거래일 종가 기준 시총이라 그날 이후 정보를 쓰지 않는다 (생존 편향 제거, SPEC 8.1)."""
+    m = members.assign(
+        month=pd.to_datetime(members["date"]).dt.to_period("M"), code=members["code"].astype(str).str.zfill(6)
+    )
+    m = m[["month", "code"]].drop_duplicates()
+    out = df.assign(month=pd.to_datetime(df["date"]).dt.to_period("M")).merge(m, on=["month", "code"])
+    return out.drop(columns="month").reset_index(drop=True)
+
+
 def build_features(
-    prices: pd.DataFrame, index: pd.DataFrame | None = None, macro: pd.DataFrame | None = None
+    prices: pd.DataFrame,
+    index: pd.DataFrame | None = None,
+    macro: pd.DataFrame | None = None,
+    members: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """prices(PRICE_COLUMNS) -> [code, date, close] + FEATURES. 날짜는 datetime64 로 맞춘다."""
+    """prices(PRICE_COLUMNS) -> [code, date, close] + FEATURES. 날짜는 datetime64 로 맞춘다.
+    members 를 주면(학습용 확장 유니버스) 종목별 시계열 피처는 전체 이력으로 계산하고,
+    같은 날 종목 간 순위(value_rank, _xr)는 그날 명단에 든 종목들 안에서만 계산한다.
+    서빙은 members 없이 서비스 종목 전체(active) 안에서 순위를 낸다."""
     p = prices.copy()
     p["date"] = pd.to_datetime(p["date"])
-    for col in ("open", "high", "low", "close", "volume", "value", "foreign_net", "inst_net", "market_cap"):
+    for col in VALUATION_COLUMNS:
+        if col not in p:
+            p[col] = np.nan
+    for col in (
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "value",
+        "foreign_net",
+        "inst_net",
+        "market_cap",
+        *VALUATION_COLUMNS,
+    ):
         p[col] = pd.to_numeric(p[col], errors="coerce").astype(float)
     p = p.sort_values(["code", "date"]).reset_index(drop=True)
     feats = p.groupby("code", group_keys=False)[p.columns].apply(_per_code)
-    out = pd.concat([p[["code", "date", "close"]], feats], axis=1)
-    out["value_rank"] = p.groupby("date")["value"].rank(pct=True)  # 같은 날 종목 간 거래대금 순위
+    out = pd.concat([p[["code", "date", "close", "value"]], feats], axis=1)
     idx = index.assign(date=pd.to_datetime(index["date"])) if index is not None else None
     mac = macro.assign(date=pd.to_datetime(macro["date"])) if macro is not None else None
     mkt = _market_features(idx, mac, out["date"])
     out = out.merge(mkt, on="date", how="left")
+    if members is not None:
+        out = in_universe(out, members)
+    out["value_rank"] = out.groupby("date")["value"].rank(pct=True)  # 같은 날 종목 간 거래대금 순위
     out["rel_ret_20d"] = out["ret_20d"] - out["kospi_ret_20d"]
     for f in STOCK_FEATURES:  # 같은 날 종목들 사이 순위 (같은 날짜 안에서만 비교 -> 미래 정보 없음)
         out[f + XR] = out.groupby("date")[f].rank(pct=True)
     return out[["code", "date", "close", *RAW_FEATURES, *(f + XR for f in STOCK_FEATURES)]]
 
 
-def build_targets(prices: pd.DataFrame, index: pd.DataFrame | None, horizon: int = HORIZON) -> pd.DataFrame:
+def build_targets(
+    prices: pd.DataFrame,
+    index: pd.DataFrame | None,
+    horizon: int = HORIZON,
+    members: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """학습용 타깃 (SPEC 8.3). 이 함수만 미래(t+h)를 본다 — 피처에는 절대 쓰지 않는다.
     ret_fwd: close[t+h]/close[t]-1, y_up = 1[ret_fwd > 0], y_out = 1[ret_fwd - kospi_fwd > 0],
     y_rel = 1[ret_fwd > 같은 날 종목들의 ret_fwd 중앙값] (상승확률 모델의 학습 라벨, 보정은 y_up 으로)."""
@@ -310,6 +362,8 @@ def build_targets(prices: pd.DataFrame, index: pd.DataFrame | None, horizon: int
     p["y_up"] = (p["ret_fwd"] > 0).astype(float).where(p["ret_fwd"].notna())
     excess = p["ret_fwd"] - p["kospi_fwd"]
     p["y_out"] = (excess > 0).astype(float).where(excess.notna())
+    if members is not None:  # 상대 라벨의 중앙값은 그날 명단 안에서
+        p = in_universe(p, members)
     med = p.groupby("date")["ret_fwd"].transform("median")
     p["y_rel"] = (p["ret_fwd"] > med).astype(float).where(p["ret_fwd"].notna())
     return p[["code", "date", "ret_fwd", "kospi_fwd", "y_up", "y_out", "y_rel"]]

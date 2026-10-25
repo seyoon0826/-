@@ -2,7 +2,7 @@
 
 실행 (로컬 또는 Colab):
     python -m src.train_lgbm --data-dir data --out models          # ml/ 에서 실행
-산출물: models/{model_version}/ up_clf.txt out_clf.txt q10.txt q50.txt q90.txt
+산출물: models/{model_version}/ up_clf_{0..4}.txt out_clf_{0..4}.txt (시드 앙상블) q10.txt q50.txt q90.txt
         calibrator_up.pkl calibrator_out.pkl
         features.json feature_labels.json metrics.json meta.json params.json
 """
@@ -24,7 +24,8 @@ import pandas as pd
 
 from src import evaluate as ev
 from src.calibration import PlattCalibrator
-from src.data import data_hash, load_csv
+from src.data import data_hash, load_csv, load_members
+from src.ensemble import SeedEnsemble
 from src.features import (
     FEATURE_LABELS,
     FEATURES,
@@ -51,21 +52,26 @@ PARAMS: dict[str, Any] = {
     "num_threads": 1,
 }
 NUM_ROUNDS, EARLY_STOP = 1_000, 50
+ENSEMBLE_SIZE = 5  # 분류기는 시드 SEED..SEED+4 로 5개 학습해 평균 (src/ensemble.py)
 
 
 def make_dataset(
-    prices: pd.DataFrame, index: pd.DataFrame | None, macro: pd.DataFrame | None
+    prices: pd.DataFrame,
+    index: pd.DataFrame | None,
+    macro: pd.DataFrame | None,
+    members: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """피처 + 타깃 (학습 전용). 타깃이 없는 마지막 5거래일은 학습에서 빠진다."""
-    return build_features(prices, index, macro).merge(
-        build_targets(prices, index), on=["code", "date"], how="left"
+    """피처 + 타깃 (학습 전용). 타깃이 없는 마지막 5거래일은 학습에서 빠진다.
+    members: 시점별 유니버스 명단 (주면 그날 명단 종목만, 순위·상대 라벨도 명단 안에서)."""
+    return build_features(prices, index, macro, members).merge(
+        build_targets(prices, index, members=members), on=["code", "date"], how="left"
     )
 
 
 @dataclass
 class Models:
-    up_clf: lgb.Booster
-    out_clf: lgb.Booster
+    up_clf: SeedEnsemble
+    out_clf: SeedEnsemble
     quantiles: dict[str, lgb.Booster]
     calibrator_up: PlattCalibrator | None = None
     calibrator_out: PlattCalibrator | None = None
@@ -101,7 +107,16 @@ def _train(params: dict[str, Any], train: pd.DataFrame, valid: pd.DataFrame, tar
     )
 
 
-def _platt(model: lgb.Booster, valid: pd.DataFrame, target: str) -> PlattCalibrator | None:
+def _train_ensemble(
+    params: dict[str, Any], train: pd.DataFrame, valid: pd.DataFrame, target: str
+) -> SeedEnsemble:
+    base = int(params.get("seed", SEED))
+    n = int(params.get("ensemble_size", ENSEMBLE_SIZE))
+    p = {k: v for k, v in params.items() if k != "ensemble_size"}
+    return SeedEnsemble([_train({**p, "seed": base + i}, train, valid, target) for i in range(n)])
+
+
+def _platt(model: SeedEnsemble, valid: pd.DataFrame, target: str) -> PlattCalibrator | None:
     va = valid.dropna(subset=[target])
     if len(va) < 100 or va[target].nunique() < 2:
         return None
@@ -117,10 +132,11 @@ def fit_models(train: pd.DataFrame, valid: pd.DataFrame, params: dict[str, Any] 
     검증 구간에서 실제 상승 여부(y_up)에 맞춰 Platt 보정해 P(up) 로 쓴다.
     """
     p = {**PARAMS, **(params or {})}
-    up = _train({**p, "objective": "binary"}, train, valid, "y_rel")
-    out = _train({**p, "objective": "binary"}, train, valid, "y_out")
+    up = _train_ensemble({**p, "objective": "binary"}, train, valid, "y_rel")
+    out = _train_ensemble({**p, "objective": "binary"}, train, valid, "y_out")
+    q = {k: v for k, v in p.items() if k != "ensemble_size"}
     qs = {
-        k: _train({**p, "objective": "quantile", "alpha": a}, train, valid, "ret_fwd")
+        k: _train({**q, "objective": "quantile", "alpha": a}, train, valid, "ret_fwd")
         for k, a in QUANTILES.items()
     }
     return Models(up, out, qs, _platt(up, valid, "y_up"), _platt(out, valid, "y_out"))
@@ -157,6 +173,34 @@ def baselines(train: pd.DataFrame, test: pd.DataFrame) -> dict[str, pd.DataFrame
     }
 
 
+RANK_BINS = 10
+
+
+def rank_returns(pred: pd.DataFrame, bins: int = RANK_BINS) -> list[dict[str, Any]]:
+    """같은 날 P(up) 순위 구간별 실제 5일 수익률 (walk-forward 테스트 구간, 학습에 안 쓴 기간).
+    구간 0 = 상위(확률 높음). 서빙은 종목의 그날 순위로 구간을 골라 '이 순위대 종목의 과거 평균'을 보여준다.
+    분위수 중앙값 모델은 시장 잡음 때문에 거의 상수가 돼(2026-10) 종목별 예상 수익률로 쓸 수 없었다."""
+    d = pred.dropna(subset=["ret_fwd"]).copy()
+    if d.empty:
+        return []
+    pct = d.groupby("date")["p_up"].rank(ascending=False, method="first", pct=True)  # (0, 1], 작을수록 상위
+    d["bin"] = np.minimum((pct * bins).apply(np.ceil).astype(int) - 1, bins - 1).clip(lower=0)
+    d["excess"] = d["ret_fwd"] - d.groupby("date")["ret_fwd"].transform("median")
+    out = []
+    for b, g in d.groupby("bin"):
+        out.append(
+            {
+                "bin": int(b),
+                "mean_return": float(g["ret_fwd"].mean()),
+                "median_return": float(g["ret_fwd"].median()),
+                "mean_excess": float(g["excess"].mean()),
+                "up_ratio": float((g["ret_fwd"] > 0).mean()),
+                "n": len(g),
+            }
+        )
+    return out
+
+
 def _positive_ic_folds(pred: pd.DataFrame) -> int:
     """상승확률 순위의 IC 가 0 보다 큰 구간 수 (구간별로 꾸준한지 보기)."""
     n = 0
@@ -167,9 +211,14 @@ def _positive_ic_folds(pred: pd.DataFrame) -> int:
 
 
 def walk_forward_eval(
-    data: pd.DataFrame, params: dict[str, Any] | None = None, **fold_kw: int
+    data: pd.DataFrame,
+    params: dict[str, Any] | None = None,
+    eval_data: pd.DataFrame | None = None,
+    **fold_kw: int,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
-    """walk-forward 로 모델과 베이스라인을 같은 테스트 구간에서 비교한다. (지표 dict, 모델 테스트 예측)"""
+    """walk-forward 로 모델과 베이스라인을 같은 테스트 구간에서 비교한다. (지표 dict, 모델 테스트 예측)
+    eval_data: 테스트 구간을 이 데이터(서비스 종목, 서빙과 같은 순위 기준)에서 뽑는다. 없으면 data."""
+    ev_data = data if eval_data is None else eval_data
     folds = make_folds(data["date"], **fold_kw)
     if not folds:
         raise ValueError("walk-forward 폴드를 만들 데이터가 부족합니다")
@@ -177,7 +226,8 @@ def walk_forward_eval(
     base: dict[str, list[pd.DataFrame]] = {"always_up": [], "momentum": [], "kospi": []}
     climatology: list[pd.DataFrame] = []  # 참고 기준: 학습 구간의 상승 비율을 그대로 확률로 말하기
     for f in folds:
-        tr, va, te = (data[f.mask(data["date"], part)] for part in ("train", "valid", "test"))
+        tr, va = (data[f.mask(data["date"], part)] for part in ("train", "valid"))
+        te = ev_data[f.mask(ev_data["date"], "test")]
         models = fit_models(tr, va, params)
         pr = models.predict(te).assign(
             date=te["date"],
@@ -214,6 +264,7 @@ def walk_forward_eval(
             allp.dropna(subset=["y_up"])["p_up"], allp.dropna(subset=["y_up"])["y_up"]
         ),
         "baseline_definitions": baselines.__doc__,
+        "rank_returns": rank_returns(allp),
         # 예측력 점검: 학습 구간 상승 비율을 그대로 말하는 것보다 확률이 나은가 (> 0 이면 낫다)
         "skill": {
             "brier_model": brier_model,
@@ -273,8 +324,8 @@ def save_artifacts(
 ) -> Path:
     d = Path(out_dir) / version
     d.mkdir(parents=True, exist_ok=True)
-    models.up_clf.save_model(str(d / "up_clf.txt"))
-    models.out_clf.save_model(str(d / "out_clf.txt"))
+    models.up_clf.save(d, "up_clf")
+    models.out_clf.save(d, "out_clf")
     for k, b in models.quantiles.items():
         b.save_model(str(d / f"{k}.txt"))
     for name, cal in (("calibrator_up", models.calibrator_up), ("calibrator_out", models.calibrator_out)):
@@ -297,18 +348,25 @@ def run(
     params: dict[str, Any] | None = None,
     skip_eval: bool = False,
     now: datetime | None = None,
+    members: pd.DataFrame | None = None,
+    eval_prices: pd.DataFrame | None = None,
     **fold_kw: int,
 ) -> Path:
-    """전체 파이프라인: 데이터 -> 피처/타깃 -> walk-forward 평가 -> 최종 학습 -> 산출물 저장."""
+    """전체 파이프라인: 데이터 -> 피처/타깃 -> walk-forward 평가 -> 최종 학습 -> 산출물 저장.
+    확장 유니버스 학습: prices=전체 수집 종목, members=시점별 명단, eval_prices=서비스 종목
+    (오프라인 성적은 서비스 종목·서빙과 같은 순위 기준으로 매긴다)."""
     params = {**PARAMS, **(params or {})}
-    data = make_dataset(prices, index, macro)
+    data = make_dataset(prices, index, macro, members)
+    eval_data = make_dataset(eval_prices, index, macro) if eval_prices is not None else None
     metrics: dict[str, Any] = {"scope": "offline", "skipped": True}
     if not skip_eval:
-        metrics, _ = walk_forward_eval(data, params, **fold_kw)
+        metrics, _ = walk_forward_eval(data, params, eval_data, **fold_kw)
     final_kw = {k: v for k, v in fold_kw.items() if k in ("train_days", "valid_days", "embargo")}
     models, fold = fit_final(data, params, **final_kw)
-    dhash = data_hash(prices, index, macro)
-    version = model_version(dhash, params, now)
+    dhash = data_hash(prices, index, macro, members, eval_prices)
+    version = model_version(
+        dhash, {**params, "ensemble_size": ENSEMBLE_SIZE}, now
+    )  # 앙상블 크기도 버전에 반영
     meta = {
         "model_version": version,
         "created_at": (now or datetime.now(UTC)).isoformat(),
@@ -319,6 +377,8 @@ def run(
             str(pd.Timestamp(data["date"].max()).date()),
         ],
         "n_codes": int(data["code"].nunique()),
+        "universe": "point-in-time 시총 상위 명단" if members is not None else "서비스 종목",
+        "eval_universe": "서비스 종목" if eval_prices is not None else "학습과 같음",
         "n_rows": len(data),
         "data_hash": dhash,
         "horizon": HORIZON,
@@ -328,6 +388,7 @@ def run(
             **{k: b.best_iteration for k, b in models.quantiles.items()},
         },
         "calibrated": models.calibrator_up is not None,
+        "ensemble_size": len(models.up_clf.boosters),
         "calibration": "platt",
         "up_target": "y_rel (같은 날 종목 중앙값 초과), P(up) 은 y_up 으로 Platt 보정",
         "versions": {
@@ -345,9 +406,27 @@ def main() -> None:  # pragma: no cover
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--out", default="models")
     ap.add_argument("--skip-eval", action="store_true")
+    ap.add_argument(
+        "--pit-universe",
+        action="store_true",
+        help="prices_daily_all.csv + universe_history.csv 로 학습하고 서비스 종목(prices_daily.csv)으로 평가",
+    )
     a = ap.parse_args()
-    prices, index, macro = load_csv(a.data_dir)
-    d = run(prices, index, macro, a.out, skip_eval=a.skip_eval)
+    if a.pit_universe:
+        prices, index, macro = load_csv(a.data_dir, "prices_daily_all.csv")
+        service, _, _ = load_csv(a.data_dir)
+        d = run(
+            prices,
+            index,
+            macro,
+            a.out,
+            skip_eval=a.skip_eval,
+            members=load_members(a.data_dir),
+            eval_prices=service,
+        )
+    else:
+        prices, index, macro = load_csv(a.data_dir)
+        d = run(prices, index, macro, a.out, skip_eval=a.skip_eval)
     print("저장:", d)
 
 

@@ -15,6 +15,7 @@ from typing import Any
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from src.ensemble import SeedEnsemble  # app.ml 패키지 초기화가 ml/ 을 sys.path 에 넣는다
 
 from app.ml.features import FEATURES, build_features
 
@@ -30,8 +31,8 @@ class FeatureMismatch(RuntimeError):
 @dataclass
 class ModelBundle:
     version: str
-    up_clf: lgb.Booster
-    out_clf: lgb.Booster
+    up_clf: SeedEnsemble
+    out_clf: SeedEnsemble
     quantiles: dict[str, lgb.Booster]
     calibrator_up: Any | None
     calibrator_out: Any | None
@@ -59,8 +60,8 @@ class ModelBundle:
 
         return cls(
             version=version,
-            up_clf=lgb.Booster(model_file=str(d / "up_clf.txt")),
-            out_clf=lgb.Booster(model_file=str(d / "out_clf.txt")),
+            up_clf=SeedEnsemble.load(d, "up_clf"),
+            out_clf=SeedEnsemble.load(d, "out_clf"),
             quantiles={k: lgb.Booster(model_file=str(d / f"{k}.txt")) for k in ("q10", "q50", "q90")},
             calibrator_up=_cal("calibrator_up.pkl"),
             calibrator_out=_cal("calibrator_out.pkl"),
@@ -128,6 +129,9 @@ def load_inputs(
         "foreign_net",
         "inst_net",
         "market_cap",
+        "per",
+        "pbr",
+        "div_yield",
     ]
     cols = [getattr(PriceDaily, n) for n in names]
     prices = pd.DataFrame(

@@ -238,3 +238,42 @@ def test_ledger_rejects_unknown_type(paper, sf):
         with pytest.raises(ValueError):
             ledger.post(s, s.get(PaperAccount, paper.account_id), "BONUS", 1)
         assert ledger.post(s, s.get(PaperAccount, paper.account_id), "FEE", 0) is None  # 0원은 기록 안 함
+
+
+# ---------------------------------------------------------------- 수익률 랭킹
+def test_mask_name():
+    assert acc.mask_name("김주식") == "김**"
+    assert acc.mask_name("lee@gmail.com") == "l**"
+    assert acc.mask_name("abcdefghij") == "a****"
+    assert acc.mask_name(None) == "익명" and acc.mask_name("") == "익명"
+
+
+def test_leaderboard_ranks_traded_user_accounts_with_ties_and_me(sf):
+    from app.models import User
+
+    p = setup(sf)  # 거래 없는 계좌는 빠진다
+    with sf() as s:
+        others = []
+        for i, name in enumerate(["가나다", "라마바", "사아자"]):
+            u = User(email=f"o{i}@example.com", password_hash="x", display_name=name)
+            s.add(u)
+            s.flush()
+            a, _ = acc.create_accounts(s, u.id, 10_000_000, OPEN)
+            others.append((u.id, a.id))
+        s.commit()
+    # 세 계좌 모두 같은 가격에 매수 -> 평가 가격만 바꿔 수익률을 다르게 만든다
+    for _, aid in others:
+        p.place(buy(10), mkt(book(asks=[(70_000, 100)])), account_id=aid)
+    with sf() as s:
+        lb = acc.leaderboard(s, {"005930": 77_000}, viewer_id=others[1][0])
+    assert lb["total"] == 3 and len(lb["rows"]) == 3
+    assert [r["rank"] for r in lb["rows"]] == [1, 1, 1]  # 같은 수익률은 같은 순위
+    r0 = lb["rows"][0]
+    assert r0["return_pct"] > 0 and r0["trades"] == 1 and "user_id" not in r0
+    assert r0["ai_return_pct"] == 0.0 and r0["name"].endswith("**")
+    assert lb["me"]["is_me"] and sum(r["is_me"] for r in lb["rows"]) == 1
+    p.place(sell(10), mkt(book(bids=[(60_000, 100)])), account_id=others[2][1])  # 손절 -> 꼴찌
+    with sf() as s:
+        lb = acc.leaderboard(s, {"005930": 77_000})
+    assert [r["rank"] for r in lb["rows"]] == [1, 1, 3] and lb["rows"][2]["return_pct"] < 0
+    assert lb["me"] is None

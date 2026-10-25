@@ -8,11 +8,11 @@ from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import PaperAccount, PortfolioSnapshot, Position, Trade
+from app.models import PaperAccount, PortfolioSnapshot, Position, Trade, User
 from app.services.market_data import KST
 from app.services.paper import errors as E
 from app.services.paper import ledger
@@ -177,3 +177,75 @@ def performance(session: Session, acct: PaperAccount) -> dict[str, Any]:
 
 def kst_today(now: datetime) -> date:
     return now.astimezone(KST).date()
+
+
+# ---------------------------------------------------------------- 수익률 랭킹
+def mask_name(name: str | None) -> str:
+    """랭킹에 보일 이름: 앞 글자만 남기고 가린다 (김주식 -> 김**, lee@gmail.com -> l**)."""
+    base = (name or "").split("@")[0].strip()
+    if not base:
+        return "익명"
+    return base[0] + "*" * min(max(len(base) - 1, 2), 4)
+
+
+def leaderboard(
+    session: Session, prices: dict[str, int], viewer_id: int | None = None, limit: int = 50
+) -> dict[str, Any]:
+    """열린 USER 계좌의 수익률 순위. 평가는 최근 종가 기준, 체결이 1번 이상 있는 계좌만.
+    같은 수익률은 같은 순위. 각 계좌의 AI 계좌 수익률도 함께 준다 (나 vs AI)."""
+    accounts = list(
+        session.scalars(
+            select(PaperAccount).where(PaperAccount.type == "USER", PaperAccount.closed_at.is_(None))
+        )
+    )
+    traded = set(
+        session.scalars(
+            select(Trade.account_id).where(Trade.account_id.in_([a.id for a in accounts])).distinct()
+        )
+    )
+    ai_by_user = {
+        a.user_id: a
+        for a in session.scalars(
+            select(PaperAccount).where(PaperAccount.type == "AI", PaperAccount.closed_at.is_(None))
+        )
+    }
+    users = {u.id: u for u in session.scalars(select(User).where(User.id.in_([a.user_id for a in accounts])))}
+
+    def total(acct: PaperAccount) -> int:
+        value = acct.cash
+        for p in session.scalars(select(Position).where(Position.account_id == acct.id, Position.qty > 0)):
+            value += p.qty * (prices.get(p.code) or int(p.avg_price))
+        return value
+
+    def pct(acct: PaperAccount) -> float:
+        return round((total(acct) - acct.initial_cash) / acct.initial_cash * 100, 2)
+
+    rows: list[dict[str, Any]] = []
+    for a in accounts:
+        if a.id not in traded:
+            continue
+        u = users.get(a.user_id)
+        ai = ai_by_user.get(a.user_id)
+        rows.append(
+            {
+                "user_id": a.user_id,
+                "name": mask_name((u.display_name or u.email) if u else None),
+                "return_pct": pct(a),
+                "ai_return_pct": pct(ai) if ai is not None else None,
+                "initial_cash": a.initial_cash,
+                "since": kst_today(a.created_at).isoformat(),
+                "trades": session.scalar(select(func.count()).where(Trade.account_id == a.id)) or 0,
+            }
+        )
+    rows.sort(key=lambda r: (-r["return_pct"], r["user_id"]))
+    prev: float | None = None
+    rank = 0
+    for i, r in enumerate(rows, start=1):
+        if r["return_pct"] != prev:
+            rank, prev = i, r["return_pct"]
+        r["rank"] = rank
+        r["is_me"] = viewer_id is not None and r["user_id"] == viewer_id
+    me = next((r for r in rows if r["is_me"]), None)
+    for r in rows:
+        del r["user_id"]  # 다른 사람의 내부 ID 는 내보내지 않는다
+    return {"rows": rows[:limit], "total": len(rows), "me": me}

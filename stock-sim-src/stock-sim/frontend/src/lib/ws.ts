@@ -56,7 +56,15 @@ function useReconnectingSocket(
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
-      ws?.close();
+      const w = ws;
+      if (!w) return;
+      if (w.readyState === WebSocket.CONNECTING) {
+        // 열리는 중에 닫으면 브라우저가 '연결 실패' 오류를 남긴다: 열리면 그때 조용히 닫는다
+        w.onopen = () => w.close();
+        w.onmessage = null;
+      } else {
+        w.close();
+      }
     };
   }, [url]);
   return state;
@@ -128,6 +136,14 @@ export function useQuotes(codes: string[]) {
 
 /** 체결/주문 이벤트와 평가금액 (WS /ws/paper). */
 export function usePaperSocket(token: string | null, onEvent: (msg: { type: string; [k: string]: unknown }) => void) {
-  const url = token ? `${WS_BASE}/ws/paper?token=${encodeURIComponent(token)}` : null;
-  return useReconnectingSocket(url, (m) => onEvent(m as { type: string }));
+  // 토큰은 주소가 아니라 연결 직후 첫 메시지로 보낸다 (주소는 서버·프록시 접속 로그에 남는다).
+  // 다시 연결할 때도 그때의 최신 토큰(30분마다 갱신)을 쓴다.
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const url = token ? `${WS_BASE}/ws/paper` : null;
+  return useReconnectingSocket(
+    url,
+    (m) => onEvent(m as { type: string }),
+    (ws) => ws.send(JSON.stringify({ type: "auth", token: tokenRef.current })),
+  );
 }

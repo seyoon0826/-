@@ -19,8 +19,8 @@ from app.ml.infer import FeatureMismatch, ModelBundle, ModelNotFound, serving_fr
 FOLD_KW = {"train_days": 300, "valid_days": 60, "test_days": 60, "step_days": 60, "embargo": 5}
 NOW = datetime(2026, 10, 22, tzinfo=UTC)
 ARTIFACTS = {
-    "up_clf.txt",
-    "out_clf.txt",
+    *(f"up_clf_{i}.txt" for i in range(5)),  # 시드 앙상블
+    *(f"out_clf_{i}.txt" for i in range(5)),
     "q10.txt",
     "q50.txt",
     "q90.txt",
@@ -219,7 +219,7 @@ def test_shap_values_sum_to_model_log_odds(trained, market):
     ex = Explainer(bundle)
     sv = ex.shap_values(X)
     raw = bundle.up_clf.predict(X[FEATURES], raw_score=True)
-    assert np.allclose(sv.sum(axis=1) + ex._tree.expected_value, raw, atol=1e-6)
+    assert np.allclose(sv.sum(axis=1) + ex.expected_value, raw, atol=1e-6)
 
 
 # ---------------------------------------------------------------- 피처 세부 규칙
@@ -300,3 +300,107 @@ def test_evaluate_metrics_known_values():
     assert ev.coverage(np.array([-1, -1]), np.array([1, 1]), np.array([0, 2])) == 0.5
     d = pd.Series(["a"] * 5 + ["b"] * 5)
     assert ev.information_coefficient(d, np.arange(10.0), np.arange(10.0)) == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------- 시점별 유니버스 (생존 편향 제거)
+def test_point_in_time_universe_ranks_within_members_only():
+    from src.features import build_targets, in_universe
+
+    prices, index, macro = make_synthetic(n_codes=6, n_days=120, seed=5)
+    codes = sorted(prices["code"].unique())
+    days = sorted(pd.to_datetime(prices["date"]).unique())
+    month1 = pd.Timestamp(days[0]).to_period("M")
+    first_of = lambda per: min(d for d in days if pd.Timestamp(d).to_period("M") == per)  # noqa: E731
+    month2 = next(pd.Timestamp(d).to_period("M") for d in days if pd.Timestamp(d).to_period("M") != month1)
+    members = pd.DataFrame(
+        {
+            "date": [first_of(month1)] * 3 + [first_of(month2)] * 4,
+            "code": codes[:3] + codes[2:6],  # 둘째 달에 명단이 바뀐다
+        }
+    )
+    f = build_features(prices, index, macro, members)
+    for per, want in ((month1, set(codes[:3])), (month2, set(codes[2:6]))):
+        got = f[f["date"].dt.to_period("M") == per]
+        assert set(got["code"]) == want  # 그 달 명단 종목만
+        day = got[got["date"] == got["date"].max()]
+        n = len(day)
+        assert sorted(day["ret_20d_xr"].dropna()) == pytest.approx(
+            [(i + 1) / n for i in range(n)]
+        )  # 명단 안 순위
+    t = build_targets(prices, index, members=members)
+    full = build_features(prices, index, macro)
+    assert len(t) == len(in_universe(full, members)) == len(f)
+
+
+def test_training_with_members_evaluates_on_service_universe(tmp_path):
+    prices, index, macro = make_synthetic(n_codes=12, n_days=700, seed=7, signal_strength=0.01)
+    codes = sorted(prices["code"].unique())
+    days = pd.to_datetime(prices["date"])
+    firsts = days.groupby(days.dt.to_period("M")).min()
+    members = pd.DataFrame([(d, c) for d in firsts for c in codes[:10]], columns=["date", "code"])
+    service = prices[prices["code"].isin(codes[:6])]
+    path = T.run(prices, index, macro, tmp_path, now=NOW, members=members, eval_prices=service, **FOLD_KW)
+    meta = json.loads((path / "meta.json").read_text())
+    assert meta["n_codes"] == 10 and meta["eval_universe"] == "서비스 종목"
+    m = json.loads((path / "metrics.json").read_text())
+    test_codes_n = m["strategies"]["model"]["n"]
+    service_rows = len(T.make_dataset(service, index, macro).dropna(subset=["y_up"]))
+    assert 0 < test_codes_n < service_rows  # 테스트 행은 서비스 종목에서만 (전체 기간의 일부)
+
+
+def test_valuation_features_inverse_and_missing_when_nonpositive():
+    prices, index, macro = make_synthetic(n_codes=3, n_days=80, seed=2)
+    last = prices["date"].max()
+    p = prices.assign(per=10.0, pbr=2.0, div_yield=3.0)
+    p.loc[(p["code"] == p["code"].min()) & (p["date"] == last), ["per", "pbr"]] = [0.0, -1.0]  # 적자/자본잠식
+    f = build_features(p, index, macro)
+    day = f[f["date"] == pd.Timestamp(last)].set_index("code")
+    first = day.index.min()
+    assert pd.isna(day.loc[first, "earn_yield"]) and pd.isna(day.loc[first, "book_to_price"])
+    other = day.drop(first)
+    assert (other["earn_yield"] == 0.1).all() and (other["book_to_price"] == 0.5).all()
+    assert (day["div_yield"] == 0.03).all()
+    assert {"earn_yield_xr", "book_to_price_xr", "div_yield_xr"} <= set(FEATURES)
+    # 밸류에이션 열이 없는 데이터(합성, 펀드)는 결측으로 계산된다
+    assert build_features(prices, index, macro)["earn_yield"].isna().all()
+
+
+def test_seed_ensemble_averages_log_odds_and_loads_old_single_file(trained, tmp_path, market):
+    from src.ensemble import SeedEnsemble
+
+    _, path = trained
+    ens = SeedEnsemble.load(path, "up_clf")
+    assert len(ens.boosters) == 5
+    assert json.loads((path / "meta.json").read_text())["ensemble_size"] == 5
+    X = build_features(*market).dropna(subset=["ret_20d"]).head(50)[FEATURES]
+    raws = [b.predict(X, raw_score=True) for b in ens.boosters]
+    assert not np.allclose(raws[0], raws[1])  # 시드마다 다른 모델
+    assert np.allclose(ens.predict(X, raw_score=True), np.mean(raws, axis=0))
+    assert np.allclose(ens.predict(X), 1 / (1 + np.exp(-np.mean(raws, axis=0))))
+    ens.boosters[0].save_model(str(tmp_path / "up_clf.txt"))  # 예전 산출물 형식 (단일 파일)
+    assert len(SeedEnsemble.load(tmp_path, "up_clf").boosters) == 1
+
+
+def test_rank_returns_table_from_walk_forward_test_rows(trained):
+    _, path = trained
+    m = json.loads((path / "metrics.json").read_text())
+    rr = m["rank_returns"]
+    assert [r["bin"] for r in rr] == list(range(len(rr))) and 2 <= len(rr) <= 10
+    assert sum(r["n"] for r in rr) == m["strategies"]["model"]["n"]  # 테스트 행 전부가 한 구간에
+    assert all(0 <= r["up_ratio"] <= 1 for r in rr)
+    # 심은 신호가 있으면 상위 구간의 실제 수익률이 하위 구간보다 높다
+    assert rr[0]["mean_return"] > rr[-1]["mean_return"]
+
+
+def test_rank_returns_bins_by_daily_percentile():
+    d = pd.DataFrame(
+        {
+            "date": ["d1"] * 10 + ["d2"] * 10,
+            "p_up": list(range(10, 0, -1)) * 2,  # 첫 행이 1위
+            "ret_fwd": [0.10 - 0.01 * i for i in range(10)] * 2,
+        }
+    )
+    rr = T.rank_returns(d)
+    assert [r["n"] for r in rr] == [2] * 10
+    assert rr[0]["mean_return"] == pytest.approx(0.10) and rr[9]["mean_return"] == pytest.approx(0.01)
+    assert rr[0]["mean_excess"] > 0 > rr[9]["mean_excess"]

@@ -1,10 +1,13 @@
 """AI 계정 자동매매 (FR-AI-2/3/4). 반드시 일반 주문과 같은 engine.place_order 를 통과한다 — 특별 경로 없음.
 
-규칙 (설정값 AI_TOP_N / AI_BUY_THRESHOLD / AI_SELL_THRESHOLD):
-- 신호: 직전 거래일 장 마감 후 배치로 만든 예측 (오늘 장 전에 확정된 정보만 쓴다)
-- 보유 중인데 P(up) < 매도 기준(0.50) -> 전량 시장가 매도
-- P(up) 상위 N(5) 종목 중 P(up) >= 매수 기준(0.55) 인 종목: 총자산/N 을 목표 금액으로 모자란 만큼 시장가 매수
-  (조건을 만족하는 종목이 N 보다 적으면 나머지는 현금으로 둔다. 목표보다 많이 든 종목은 줄이지 않는다)
+규칙 (AI_MODE, 신호는 직전 거래일 장 마감 후 배치로 만든 예측 — 오늘 장 전에 확정된 정보만 쓴다):
+- rank (기본): 같은 날 종목 중 P(up) 순위 상위 N(AI_TOP_N=5) 을 총자산/N 목표로 매수,
+  보유 종목이 상위 AI_SELL_RANK(10) 밖으로 밀리면 전량 매도.
+  이유(2026-10): 모델의 예측력은 종목 간 순위(IC)에 있고 절대 확률은 과거 상승 비율 근처로 보정돼
+  (예: 전 종목 42~43%) 확률 문턱으로는 매수가 전혀 일어나지 않고 보유 종목을 매일 팔게 됐다.
+- probability (SPEC FR-AI-2 원안): P(up) 상위 N 중 P(up) >= AI_BUY_THRESHOLD(0.55) 매수,
+  보유 중 P(up) < AI_SELL_THRESHOLD(0.50) 이면 전량 매도.
+- 공통: 목표에 모자란 만큼만 시장가 매수, 목표보다 많이 든 종목은 줄이지 않는다.
 - 순서: 매도 먼저, 그다음 매수를 한 종목씩. 시장가 매수는 상한가 기준으로 예약했다가 체결 후
   차액을 풀기 때문에 앞 주문이 체결돼야 다음 주문에 돈이 생긴다. 예약금이 모자라면 살 수 있는 만큼으로 줄인다.
 - 주문마다 근거 예측 ID 를 prediction_id 로 남긴다 (FR-AI-4).
@@ -34,10 +37,18 @@ class Rules:
     top_n: int
     buy_threshold: float
     sell_threshold: float
+    mode: str = "probability"  # rank | probability
+    sell_rank: int = 10
 
     @classmethod
     def from_settings(cls) -> Rules:
-        return cls(settings.ai_top_n, settings.ai_buy_threshold, settings.ai_sell_threshold)
+        return cls(
+            settings.ai_top_n,
+            settings.ai_buy_threshold,
+            settings.ai_sell_threshold,
+            settings.ai_mode,
+            settings.ai_sell_rank,
+        )
 
 
 @dataclass(frozen=True)
@@ -77,19 +88,29 @@ def plan(
     holdings: dict[str, int], prices: dict[str, int], total_value: int, sig: dict[str, Signal], rules: Rules
 ) -> list[Planned]:
     """holdings: 종목 -> 팔 수 있는 수량. 반환은 매도 먼저, 매수는 확률 높은 순."""
+    order = sorted(sig.values(), key=lambda s: (-s.p_up, s.code))
+    rank = {s.code: i for i, s in enumerate(order, start=1)}
+    by_rank = rules.mode == "rank"
     out: list[Planned] = []
     for code, qty in sorted(holdings.items()):
         s = sig.get(code)
-        if qty > 0 and s is not None and s.p_up < rules.sell_threshold:
+        if qty <= 0 or s is None:
+            continue
+        if by_rank and rank[code] > rules.sell_rank:
+            out.append(
+                Planned(
+                    code, "SELL", qty, s.prediction_id, f"순위 {rank[code]}/{len(order)} > {rules.sell_rank}"
+                )
+            )
+        elif not by_rank and s.p_up < rules.sell_threshold:
             out.append(
                 Planned(code, "SELL", qty, s.prediction_id, f"P(up) {s.p_up:.2f} < {rules.sell_threshold}")
             )
     sold = {p.code for p in out}
-    ranked = sorted(sig.values(), key=lambda s: (-s.p_up, s.code))[: rules.top_n]
     target = total_value // rules.top_n
-    for s in ranked:
+    for s in order[: rules.top_n]:
         price = prices.get(s.code)
-        if s.p_up < rules.buy_threshold or not price or s.code in sold:
+        if (not by_rank and s.p_up < rules.buy_threshold) or not price or s.code in sold:
             continue
         have = holdings.get(s.code, 0) * price
         qty = (target - have) // price
@@ -100,7 +121,7 @@ def plan(
                     "BUY",
                     qty,
                     s.prediction_id,
-                    f"P(up) {s.p_up:.2f} 상위 {rules.top_n} · 목표 {target:,}원",
+                    f"순위 {rank[s.code]}/{len(order)} · P(up) {s.p_up:.2f} · 목표 {target:,}원",
                 )
             )
     return out

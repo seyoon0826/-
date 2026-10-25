@@ -45,7 +45,7 @@ export default function PerformanceChart({ me, ai }: { me?: PaperPerformance; ai
     );
     if (ai?.curve.length)
       line(
-        "#7F77DD",
+        css("--signal"),
         ai.curve.map((c) => ({ time: c.date, value: c.return_pct })),
         "AI",
       );

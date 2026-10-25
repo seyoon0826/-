@@ -10,6 +10,21 @@ export interface StockSummary {
   change_pct: number | null;
   p_up: number | null;
   as_of_date: string | null;
+  rank: number | null; // 같은 날 종목 중 상승확률 순위 (1 = 가장 높음)
+  rank_of: number | null;
+  q10: number | null; // 5거래일 뒤 수익률 예상 (소수): 10%, 50%(중앙값), 90% 분위수
+  q50: number | null;
+  q90: number | null;
+  expected: RankHistory | null;
+}
+
+/** 그날 순위가 비슷했던 종목들의 과거 실제 결과 (walk-forward 테스트 구간, 상위/중위/하위권으로 묶음) */
+export interface RankHistory {
+  tier: "상위권" | "중위권" | "하위권";
+  up_ratio: number;
+  mean_return: number;
+  n: number;
+  ups: number;
 }
 
 export interface Candle {
@@ -94,6 +109,8 @@ export interface Prediction {
   close: number;
   p_up: number;
   p_outperform: number | null;
+  rank: { position: number | null; of: number | null }; // 같은 날 종목 중 상승확률 순위
+  expected: RankHistory | null;
   range: PriceRange;
   factors: Factor[];
   news: NewsItem[];
@@ -125,7 +142,7 @@ export interface ModelSkill {
   ic: number;
   ic_positive_folds: number;
   folds: number;
-  level: "low" | "ok";
+  level: "low" | "ranking" | "ok"; // ranking: 종목 간 순위만 약하게 맞힘, 절대 확률은 과거 상승 비율 수준
 }
 
 export interface HistorySummary {

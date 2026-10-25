@@ -34,6 +34,17 @@ def _int(v) -> int | None:
     return int(v)
 
 
+def _dec(v) -> Decimal | None:
+    """KRX 밸류에이션 값. 결측/무한대는 None. 0 은 그대로 둔다(적자 등 — 피처 단계에서 결측 처리)."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):
+        return None
+    return Decimal(str(round(f, 2)))
+
+
 def upsert_prices(session, code: str, df) -> int:
     """멱등: (code, date) 충돌 시 값을 갱신한다. 종가가 없는 행은 건너뛰고, OHLC 는 정합성을 맞춘다."""
     rows = []
@@ -65,6 +76,10 @@ def upsert_prices(session, code: str, df) -> int:
             "inst_net": inst,
             "market_cap": _int(r.get("market_cap")),
         }
+        # 밸류에이션은 있을 때만 갱신 (없는 열로 기존 값을 지우지 않는다)
+        for col in ("per", "pbr", "div_yield"):
+            if col in df.columns:
+                row[col] = _dec(r.get(col))
         rows.append(row)
     for i in range(0, len(rows), CHUNK):
         stmt = insert(PriceDaily).values(rows[i : i + CHUNK])

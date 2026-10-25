@@ -22,7 +22,13 @@ from app.models import (
     Stock,
 )
 from app.services.market_data import KST
-from app.services.prediction_service import latest_prediction, model_skill, price_range
+from app.services.prediction_service import (
+    expected_from_rank,
+    latest_prediction,
+    model_skill,
+    price_range,
+    ranks_on,
+)
 
 router = APIRouter()
 META = {"disclaimer": DISCLAIMER}
@@ -71,6 +77,7 @@ async def get_prediction(code: str, db: Session = Depends(get_db)):
             .order_by(News.published_at.desc())
         ).all()
         sc = db.get(PredictionScenario, p.id)
+        rank, of = ranks_on(db, p.as_of_date, p.model_version).get(p.code, (None, None))
         return {
             "code": p.code,
             "as_of_date": p.as_of_date.isoformat(),
@@ -78,6 +85,8 @@ async def get_prediction(code: str, db: Session = Depends(get_db)):
             "close": p.close_at_asof,
             "p_up": float(p.p_up),
             "p_outperform": float(p.p_outperform) if p.p_outperform is not None else None,
+            "rank": {"position": rank, "of": of},  # 같은 날 종목 중 상승확률 순위 (1 = 가장 높음)
+            "expected": expected_from_rank(settings.model_dir, p.model_version, rank, of),
             "range": _range(p),
             "factors": [
                 {

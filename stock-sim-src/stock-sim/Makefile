@@ -21,6 +21,10 @@ export-data:
 	$(PY) scripts/export_training_data.py
 train:
 	cd ml && ../$(PY) -m src.train_lgbm --data-dir ../data --out models
+train-pit:  # 확장 유니버스(시점별 시총 상위 100)로 학습, 서비스 종목으로 평가. 먼저 export-all
+	cd ml && ../$(PY) -m src.train_lgbm --data-dir ../data --out models --pit-universe
+export-all:
+	$(PY) scripts/export_training_data.py --all
 collect:
 	$(PY) scripts/collect_prices.py
 apitest:

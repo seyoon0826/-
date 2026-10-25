@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Noto_Sans_KR, Schibsted_Grotesk } from "next/font/google";
 import type { ReactNode } from "react";
 
 import NavLinks from "@/components/ui/NavLinks";
@@ -7,12 +8,28 @@ import { DISCLAIMER } from "@/types";
 
 import "./globals.css";
 
+// 글꼴 (taste-skill 시트: Schibsted Grotesk). 한글이 없는 글꼴이라 한글은 굵기가 맞는 Noto Sans KR 이 맡는다.
+// 숫자와 영문은 Schibsted, 한글은 Noto: 한 글자 체계에 한 글꼴씩.
+const latin = Schibsted_Grotesk({
+  weight: ["400", "600", "800"],
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-latin",
+});
+const korean = Noto_Sans_KR({
+  weight: ["400", "600", "800"],
+  subsets: ["latin"],
+  preload: false, // 한글 글리프는 용량이 커서 미리 불러오지 않는다
+  display: "swap",
+  variable: "--font-kr",
+});
+
 export const metadata: Metadata = { title: "StockSim", description: "코스피 대형주 5거래일 예측과 모의투자" };
 export const viewport: Viewport = { width: "device-width", initialScale: 1 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ko">
+    <html lang="ko" className={`${latin.variable} ${korean.variable}`}>
       <body>
         <ToastProvider>
           <header className="topbar">

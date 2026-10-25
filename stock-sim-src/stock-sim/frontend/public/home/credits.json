@@ -1,0 +1,76 @@
+[
+  {
+    "file": "public/home/korea-exchange.jpg",
+    "media": "image",
+    "ref": "commons:20841348",
+    "title": "Korea exchange",
+    "creator": "hyolee2",
+    "creatorUrl": null,
+    "date": "2012-03-07",
+    "license": "CC BY-SA 3.0",
+    "licenseCode": "by-sa",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0",
+    "creditRequired": true,
+    "page": "https://commons.wikimedia.org/wiki/File:Korea_exchange.JPG",
+    "via": "Wikimedia Commons",
+    "image": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/65/Korea_exchange.JPG/1920px-Korea_exchange.JPG",
+    "width": 1920,
+    "height": 1440,
+    "bytes": 430656,
+    "credit": "\"Korea exchange\" by hyolee2, CC BY-SA 3.0, via Wikimedia Commons",
+    "notes": [
+      "Share-alike: an altered version (recoloured, combined with other pictures) must be shared under the same licence."
+    ],
+    "saved": "2026-10-24T12:54:09.286Z"
+  },
+  {
+    "file": "public/home/yeouido-seoul.jpg",
+    "media": "image",
+    "ref": "commons:99239862",
+    "title": "Yeouido, Seoul",
+    "creator": "Brit in Seoul",
+    "creatorUrl": null,
+    "date": "2021-01-22",
+    "license": "CC BY-SA 4.0",
+    "licenseCode": "by-sa",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "creditRequired": true,
+    "page": "https://commons.wikimedia.org/wiki/File:Yeouido,_Seoul.jpg",
+    "via": "Wikimedia Commons",
+    "image": "https://upload.wikimedia.org/wikipedia/commons/7/71/Yeouido%2C_Seoul.jpg",
+    "width": 1334,
+    "height": 903,
+    "bytes": 174885,
+    "credit": "\"Yeouido, Seoul\" by Brit in Seoul, CC BY-SA 4.0, via Wikimedia Commons",
+    "notes": [
+      "Share-alike: an altered version (recoloured, combined with other pictures) must be shared under the same licence."
+    ],
+    "saved": "2026-10-24T12:54:10.160Z"
+  },
+  {
+    "file": "public/home/seoul-from-63.webm",
+    "media": "video",
+    "poster": "public/home/seoul-from-63.jpg",
+    "ref": "commons:92551605",
+    "title": "View-of-Seoul-from63-Building-2019-7-27",
+    "creator": "Nesnad",
+    "creatorUrl": null,
+    "date": "2019-07-27",
+    "license": "CC BY-SA 4.0",
+    "licenseCode": "by-sa",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "creditRequired": true,
+    "page": "https://commons.wikimedia.org/wiki/File:View-of-Seoul-from63-Building-2019-7-27.webm",
+    "via": "Wikimedia Commons",
+    "video": "https://upload.wikimedia.org/wikipedia/commons/transcoded/1/1c/View-of-Seoul-from63-Building-2019-7-27.webm/View-of-Seoul-from63-Building-2019-7-27.webm.480p.vp9.webm",
+    "width": 854,
+    "height": 480,
+    "duration": 38.6,
+    "bytes": 5850079,
+    "credit": "\"View-of-Seoul-from63-Building-2019-7-27\" by Nesnad, CC BY-SA 4.0, via Wikimedia Commons",
+    "notes": [
+      "Share-alike: an altered version (recoloured, combined with other pictures) must be shared under the same licence."
+    ],
+    "saved": "2026-10-24T13:03:05.117Z"
+  }
+]

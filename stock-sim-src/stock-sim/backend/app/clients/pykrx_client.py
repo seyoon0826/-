@@ -115,6 +115,14 @@ def investor_net(code: str, start: str, end: str) -> pd.DataFrame:
     ]
 
 
+def valuation(code: str, start: str, end: str) -> pd.DataFrame:
+    """KRX 일별 PER/PBR/배당수익률(%). 펀드·리츠 등 값이 없는 종목은 빈 표 (가격은 그대로 저장)."""
+    df = _retry(_stock().get_market_fundamental, start, end, code)
+    if not {"PER", "PBR", "DIV"} <= set(df.columns):
+        return pd.DataFrame(columns=["per", "pbr", "div_yield"], dtype=float)
+    return df.rename(columns={"PER": "per", "PBR": "pbr", "DIV": "div_yield"})[["per", "pbr", "div_yield"]]
+
+
 def collect(code: str, start: str, end: str) -> pd.DataFrame:
     """일봉 + 수급 합치기 (CSV 수집 스크립트용)."""
     out = daily_ohlcv(code, start, end).join(investor_net(code, start, end))
@@ -124,7 +132,8 @@ def collect(code: str, start: str, end: str) -> pd.DataFrame:
 
 def collect_full(code: str, start: str, end: str, pause: float = 0.2) -> pd.DataFrame:
     """prices_daily 적재용: 일봉 + 거래대금 + 시총 + 외국인/기관 순매수. 연 단위로 나눠 조회한다.
-    반환: 인덱스=날짜(date), 컬럼 open high low close volume value market_cap foreign_net inst_net."""
+    반환: 인덱스=날짜(date), 컬럼 open high low close volume value market_cap foreign_net inst_net
+    per pbr div_yield."""
     frames = []
     for s, e in _year_windows(start, end):
         base = daily_ohlcv(code, s, e)
@@ -132,7 +141,11 @@ def collect_full(code: str, start: str, end: str, pause: float = 0.2) -> pd.Data
             continue
         cap = _retry(_stock().get_market_cap_by_date, s, e, code)[["시가총액", "거래대금"]]
         cap = cap.rename(columns={"시가총액": "market_cap", "거래대금": "value"})
-        frames.append(base.join(cap, how="left").join(investor_net(code, s, e), how="left"))
+        frames.append(
+            base.join(cap, how="left")
+            .join(investor_net(code, s, e), how="left")
+            .join(valuation(code, s, e), how="left")
+        )
         time.sleep(pause)
     if not frames:
         return pd.DataFrame(
@@ -146,6 +159,9 @@ def collect_full(code: str, start: str, end: str, pause: float = 0.2) -> pd.Data
                 "market_cap",
                 "foreign_net",
                 "inst_net",
+                "per",
+                "pbr",
+                "div_yield",
             ]
         )
     out = pd.concat(frames)

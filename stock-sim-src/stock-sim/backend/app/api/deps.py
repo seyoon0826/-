@@ -28,3 +28,15 @@ def current_user_id(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer), db: Session = Depends(get_db)
 ) -> int:
     return user_id_from_token(creds.credentials if creds else None, db)
+
+
+def optional_user_id(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer), db: Session = Depends(get_db)
+) -> int | None:
+    """로그인하지 않아도 되는 화면에서 '나'를 표시하려고 쓴다. 토큰이 없거나 틀리면 None."""
+    if creds is None:
+        return None
+    try:
+        return user_id_from_token(creds.credentials, db)
+    except ApiError:
+        return None

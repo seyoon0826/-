@@ -15,7 +15,7 @@ export default function TrackRecord({ items, summary }: { items: HistoryItem[]; 
         <span>이 종목 예측 기록 (최근 {rows.length}건)</span>
         <span>
           {summary?.n
-            ? `방향 적중 ${pct0(summary.hit_rate ?? 0)} · 범위 적중 ${pct0(summary.range_coverage ?? 0)} (결과 ${summary.n}건)`
+            ? `결과 ${summary.n}건 중 방향 적중 ${pct0(summary.hit_rate ?? 0)}, 범위 적중 ${pct0(summary.range_coverage ?? 0)}`
             : "결과 대기"}
         </span>
       </div>

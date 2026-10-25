@@ -96,17 +96,17 @@ export default function OrderPanel({
       const verb = side === "BUY" ? "매수" : "매도";
       toast(
         o.status === "FILLED"
-          ? `체결 · ${name} ${verb} ${o.filled_qty}주`
+          ? `${name} ${o.filled_qty}주 ${verb} 체결`
           : o.queued
-            ? `접수 · ${name} ${verb} ${qty}주 (다음 장 시작 시 처리)`
-            : `접수 · ${name} ${verb} ${qty}주 (${o.status === "PARTIAL" ? `${o.filled_qty}주 체결, 나머지 대기` : "대기"})`,
+            ? `${name} ${qty}주 ${verb} 주문 접수, 다음 장 시작 때 처리합니다`
+            : `${name} ${qty}주 ${verb} 주문 접수 (${o.status === "PARTIAL" ? `${o.filled_qty}주 체결, 나머지 대기` : "체결 대기"})`,
         side === "BUY" ? "up" : "dn",
       );
       onPlaced();
     } catch (e) {
       const msg = e instanceof ApiError ? `${REJECT_LABEL[e.code] ?? e.code}: ${e.message}` : "주문하지 못했습니다";
       setError(msg);
-      toast(`주문 거부 · ${msg}`, "err");
+      toast(`주문이 거부됐습니다: ${msg}`, "err");
       onPlaced(); // 거부된 주문도 내역에 남는다
     } finally {
       setBusy(false);
@@ -116,7 +116,7 @@ export default function OrderPanel({
   return (
     <div className="panel" style={{ display: "grid", gap: 12 }}>
       <div className="panel-h" style={{ marginBottom: 0 }}>
-        <span>주문 · {name}</span>
+        <span>{name} 주문</span>
         <span className="chip">{marketOpen === null ? "장 상태 확인 중" : marketOpen ? "정규장" : "장 마감"}</span>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -171,7 +171,7 @@ export default function OrderPanel({
       )}
       <label className="field">
         <span className="label">
-          수량 · 주문가능 {won(Math.max(maxQty, 0))}주 {side === "BUY" ? `(가용 현금 ${krw(availableCash)})` : ""}
+          수량 (최대 {won(Math.max(maxQty, 0))}주) {side === "BUY" ? `(가용 현금 ${krw(availableCash)})` : ""}
         </span>
         <span className="input-row">
           <input
@@ -181,7 +181,11 @@ export default function OrderPanel({
             onChange={(e) => setQty(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
             aria-invalid={!qtyOk}
           />
-          <button className="btn" onClick={() => setQty(Math.max(maxQty, 0))}>
+          <button
+            className="btn"
+            style={{ whiteSpace: "nowrap", flexShrink: 0 }}
+            onClick={() => setQty(Math.max(maxQty, 0))}
+          >
             최대
           </button>
         </span>

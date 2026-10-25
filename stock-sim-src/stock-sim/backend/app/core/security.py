@@ -27,7 +27,9 @@ def hash_password(password: str) -> str:
     return _ph.hash(password)
 
 
-def verify_password(password_hash: str, password: str) -> bool:
+def verify_password(password_hash: str | None, password: str) -> bool:
+    if not password_hash:
+        return False
     try:
         return _ph.verify(password_hash, password)
     except (VerificationError, InvalidHashError):
@@ -66,6 +68,17 @@ def _decode(token: str, kind: str) -> dict:
     if payload.get("type") != kind:
         raise InvalidToken(f"{kind} 토큰이 아닙니다")
     return payload
+
+
+def encode_oauth_state(data: dict, seconds: int, now: datetime | None = None) -> str:
+    """소셜 로그인 state/PKCE verifier 를 서명해 쿠키에 담는다 (서버 저장 없이 위조·변조 방지)."""
+    now = now or datetime.now(UTC)
+    payload = {**data, "type": "oauth_state", "iat": now, "exp": now + timedelta(seconds=seconds)}
+    return jwt.encode(payload, _secret(), algorithm=settings.jwt_algorithm)
+
+
+def decode_oauth_state(token: str) -> dict:
+    return _decode(token, "oauth_state")
 
 
 def decode_access_token(token: str) -> int:

@@ -1,6 +1,7 @@
 """stocks, prices_daily, index_daily, macro_daily, market_calendar (SPEC 9.1)"""
 
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     ARRAY,
@@ -51,6 +52,10 @@ class PriceDaily(Base):
     foreign_net: Mapped[int | None] = mapped_column(BigInteger)
     inst_net: Mapped[int | None] = mapped_column(BigInteger)
     market_cap: Mapped[int | None] = mapped_column(BigInteger)
+    # KRX 일별 밸류에이션 (그날 종가 기준 공표값): PER/PBR 배수, 배당수익률 %
+    per: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    pbr: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    div_yield: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
 
 
 class IndexDaily(Base):

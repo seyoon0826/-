@@ -118,17 +118,30 @@ async def ws_quotes(ws: WebSocket, store: QuoteStore = Depends(get_store)):
 PORTFOLIO_THROTTLE_SEC = 1.0  # 시세 변동 시 평가금액 푸시는 최대 1초 1회
 
 
+AUTH_TIMEOUT_SEC = 10.0
+
+
 @router.websocket("/ws/paper")
 async def ws_paper(
     ws: WebSocket,
-    token: str | None = None,
     store: QuoteStore = Depends(get_store),
     db: Session = Depends(get_db),
 ):
-    """체결/주문 상태 이벤트(ch:paper:{account_id})와 평가금액을 푸시한다. 토큰은 쿼리(?token=)로 받는다."""
+    """체결/주문 상태 이벤트(ch:paper:{account_id})와 평가금액을 푸시한다.
+    토큰은 연결 직후 첫 메시지 {"type": "auth", "token": "..."} 로 받는다. 주소(?token=)로 받지 않는 이유:
+    접속 로그(uvicorn access log, 프록시 로그)에 주소가 그대로 남아 토큰이 새기 때문이다."""
     from app.services.paper import accounts as acc
     from app.services.paper.events import channel
 
+    await ws.accept()
+    try:
+        first = await asyncio.wait_for(ws.receive_json(), AUTH_TIMEOUT_SEC)
+        token = first.get("token") if isinstance(first, dict) and first.get("type") == "auth" else None
+    except WebSocketDisconnect:
+        return  # 인증 전에 클라이언트가 떠났다
+    except (TimeoutError, ValueError):  # 10초 안에 인증하지 않았거나 JSON 이 아니다
+        await ws.close(code=4401)
+        return
     # 연결이 오래 살아 있으므로 DB 조회마다 트랜잭션을 바로 닫는다(rollback).
     # 열어 두면 idle-in-transaction 으로
     # 잠금을 쥐고 있어 다른 작업(DDL/TRUNCATE 등)을 막고, 체결 워커가 바꾼 최신 값도 못 본다.
@@ -144,7 +157,6 @@ async def ws_paper(
     if account_id is None:
         await ws.close(code=4404)
         return
-    await ws.accept()
 
     async def portfolio_msg() -> dict:
         """REST /paper/portfolio 와 같은 계산(실시간 시세 우선, 없으면 최근 종가)."""

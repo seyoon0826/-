@@ -480,13 +480,17 @@ def store_offline_metrics(session: Session, model_dir: str | Path, version: str,
     return n_rows
 
 
-SKILL_MIN_POSITIVE_FOLDS = 0.6  # IC 가 양수인 fold 비율이 이보다 낮으면 '예측력 낮음'
+SKILL_MIN_POSITIVE_FOLDS = 0.6  # IC 가 양수인 fold 비율 기준
 _skill_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
 
 
 def model_skill(model_dir: str | Path, version: str) -> dict[str, Any] | None:
-    """오프라인 walk-forward 예측력 (metrics.json 의 skill). 화면의 '예측력 낮음' 표시에 쓴다.
-    low = 과거 상승 비율(기후값)보다 Brier 가 낫지 않거나, IC 가 양수인 fold 가 60% 미만."""
+    """오프라인 walk-forward 예측력 (metrics.json 의 skill). 화면 안내 문구에 쓴다.
+    level
+    - low     : 종목 간 순위도 맞히지 못함 (IC <= 0 이거나 IC 양수 fold 60% 미만)
+    - ranking : 순위(어느 종목이 상대적으로 나을지)에는 약한 예측력,
+                절대 확률은 과거 상승 비율과 비슷 (Brier skill <= 0)
+    - ok      : 둘 다 기준선보다 낫다"""
     key = (str(model_dir), version)
     if key not in _skill_cache:
         path = Path(model_dir) / version / "metrics.json"
@@ -495,15 +499,60 @@ def model_skill(model_dir: str | Path, version: str) -> dict[str, Any] | None:
             _skill_cache[key] = None
         else:
             share = k["ic_positive_folds"] / k["folds"] if k["folds"] else 0.0
+            ranks = k["ic_p_up"] > 0 and share >= SKILL_MIN_POSITIVE_FOLDS
+            level = "ok" if ranks and k["brier_skill"] > 0 else ("ranking" if ranks else "low")
             _skill_cache[key] = {
                 "scope": "offline",
                 "brier_skill": round(float(k["brier_skill"]), 4),
                 "ic": round(float(k["ic_p_up"]), 4),
                 "ic_positive_folds": int(k["ic_positive_folds"]),
                 "folds": int(k["folds"]),
-                "level": "low" if k["brier_skill"] <= 0 or share < SKILL_MIN_POSITIVE_FOLDS else "ok",
+                "level": level,
             }
     return _skill_cache[key]
+
+
+_rank_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
+
+
+TIERS = (("상위권", 0.0, 0.3), ("중위권", 0.3, 0.7), ("하위권", 0.7, 1.0))  # 순위 백분위 구간
+
+
+def expected_from_rank(
+    model_dir: str | Path, version: str, rank: int | None, of: int | None
+) -> dict[str, Any] | None:
+    """그날 순위가 비슷했던 종목들이 과거에 실제로 어떻게 움직였나
+    (metrics.json 의 rank_returns: walk-forward 테스트 구간, 학습에 안 쓴 기간). rank 1 = 상위.
+    10구간 값은 잡음이 커서(2026-10 모델: 구간별 평균이 단조롭지 않음) 상위 30% / 중간 40% / 하위 30%
+    세 묶음으로 합쳐 표본 수로 가중평균한다. 표가 없으면(예전 모델) None."""
+    if rank is None or not of:
+        return None
+    key = (str(model_dir), version)
+    if key not in _rank_cache:
+        path = Path(model_dir) / version / "metrics.json"
+        _rank_cache[key] = (json.loads(path.read_text()).get("rank_returns") or []) if path.exists() else []
+    table = _rank_cache[key]
+    if not table:
+        return None
+    bins = max(r["bin"] for r in table) + 1
+    b = min(max(int(np.ceil(rank / of * bins)) - 1, 0), bins - 1)
+    pos = (b + 0.5) / bins
+    name, lo, hi = next(t for t in TIERS if t[1] <= pos < t[2] or (t[2] == 1.0 and pos >= t[1]))
+    group = [
+        r
+        for r in table
+        if lo <= (r["bin"] + 0.5) / bins < hi or (hi == 1.0 and (r["bin"] + 0.5) / bins >= lo)
+    ]
+    n = sum(r["n"] for r in group)
+    if n == 0:
+        return None
+    return {
+        "tier": name,
+        "up_ratio": sum(r["up_ratio"] * r["n"] for r in group) / n,
+        "mean_return": sum(r["mean_return"] * r["n"] for r in group) / n,
+        "n": n,
+        "ups": round(sum(r["up_ratio"] * r["n"] for r in group)),
+    }
 
 
 def calibration_live(session: Session, version: str, window: str) -> list[dict[str, Any]]:
@@ -567,6 +616,16 @@ def run_daily_batch(
             store_offline_metrics(s, model_dir, ctx.bundle.version, clock())
             s.commit()
     return res
+
+
+def ranks_on(session: Session, as_of: date, version: str | None) -> dict[str, tuple[int, int]]:
+    """같은 기준일·같은 모델의 종목 간 상승확률 순위 {code: (순위, 종목 수)}. 1위가 가장 높다.
+    보정(Platt)은 단조라 순위는 모델 점수 순위와 같다 — 이 모델의 예측력(IC)이 있는 곳."""
+    q = select(Prediction.code, Prediction.p_up).where(Prediction.as_of_date == as_of)
+    if version:
+        q = q.where(Prediction.model_version == version)
+    rows = sorted(session.execute(q).all(), key=lambda r: (-r.p_up, r.code))
+    return {r.code: (i, len(rows)) for i, r in enumerate(rows, start=1)}
 
 
 def latest_prediction(session: Session, code: str, version: str | None = None) -> Prediction | None:

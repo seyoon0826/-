@@ -10,7 +10,8 @@ import { API_BASE, ApiError } from "@/lib/api";
 
 export interface AuthUser {
   id: number;
-  email: string;
+  email: string | null; // 카카오에서 이메일 제공에 동의하지 않으면 없다
+  display_name: string | null;
   created_at: string;
 }
 
@@ -54,9 +55,29 @@ async function authCall(path: string, body?: unknown): Promise<TokenResponse | n
   return (json?.data as TokenResponse) ?? null;
 }
 
+// 이 브라우저의 마지막 로그인 상태 (리프레시 쿠키는 httpOnly 라 스크립트가 볼 수 없다).
+// "0"(로그아웃했거나 복구에 실패)이면 새로고침 때 /auth/refresh 를 부르지 않는다 (매번 401 이 나던 헛요청).
+// 기록이 없으면(처음 보는 브라우저, 이 기능 전에 로그인한 사람) 한 번은 복구를 시도한다.
+const HINT = "stocksim.session";
+function setHint(on: boolean) {
+  try {
+    window.localStorage.setItem(HINT, on ? "1" : "0");
+  } catch {
+    /* 저장소를 못 쓰는 환경: 매번 복구를 시도한다 */
+  }
+}
+function hasHint(): boolean {
+  try {
+    return window.localStorage.getItem(HINT) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 function accept(t: TokenResponse | null) {
   clearTimeout(timer);
   session = t ? { token: t.access_token, user: t.user } : null;
+  setHint(!!t);
   if (t) timer = setTimeout(() => void refreshAccess(), Math.max(t.expires_in - 60, 30) * 1000);
   emit();
 }
@@ -74,6 +95,18 @@ export async function refreshAccess(): Promise<string | null> {
 
 function restore(): Promise<void> {
   if (restored) return Promise.resolve();
+  // 소셜 로그인에서 막 돌아왔으면(서버가 ?login=ok 를 붙인다) 쿠키가 새로 생긴 것이므로 반드시 복구한다
+  const url = new URL(window.location.href);
+  const fromOAuth = url.searchParams.get("login") === "ok";
+  if (fromOAuth) {
+    url.searchParams.delete("login");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }
+  if (!fromOAuth && !hasHint()) {
+    restored = true;
+    emit();
+    return Promise.resolve();
+  }
   restoring ??= refreshAccess().then(() => {
     restored = true;
     emit();

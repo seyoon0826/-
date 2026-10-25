@@ -373,7 +373,7 @@ def test_prediction_api_shape_and_disclaimer(sf, seeded, ctx, model_dir, client)
         "bear",
     }
     sk = body["meta"]["skill"]  # 오프라인 예측력 + 낮음 판정
-    assert sk["scope"] == "offline" and sk["level"] in ("low", "ok") and sk["folds"] >= 1
+    assert sk["scope"] == "offline" and sk["level"] in ("low", "ranking", "ok") and sk["folds"] >= 1
 
 
 def test_model_skill_level_rule(tmp_path):
@@ -383,11 +383,13 @@ def test_model_skill_level_rule(tmp_path):
 
     base = {"brier_model": 0.24, "brier_base_rate": 0.25, "ic_p_up": 0.03, "folds": 10}
     write("good", {**base, "brier_skill": 0.04, "ic_positive_folds": 7})
-    write("worse_than_base_rate", {**base, "brier_skill": -0.003, "ic_positive_folds": 9})
+    write("ranks_only", {**base, "brier_skill": -0.003, "ic_positive_folds": 9})
     write("unstable_ic", {**base, "brier_skill": 0.01, "ic_positive_folds": 5})
+    write("negative_ic", {**base, "ic_p_up": -0.01, "brier_skill": 0.01, "ic_positive_folds": 8})
     assert ps.model_skill(tmp_path, "good")["level"] == "ok"
-    assert ps.model_skill(tmp_path, "worse_than_base_rate")["level"] == "low"
+    assert ps.model_skill(tmp_path, "ranks_only")["level"] == "ranking"  # 순위만 맞힘
     assert ps.model_skill(tmp_path, "unstable_ic")["level"] == "low"
+    assert ps.model_skill(tmp_path, "negative_ic")["level"] == "low"
     assert ps.model_skill(tmp_path, "missing") is None
 
 
@@ -437,6 +439,40 @@ def test_stock_list_shows_latest_p_up(sf, seeded, ctx, model_dir, client):
     ps.run_daily_batch(sf, ctx, model_dir[0], seeded[-3])
     rows = client.get("/api/v1/stocks").json()["data"]
     assert all(r["p_up"] is not None and r["as_of_date"] == seeded[-3].isoformat() for r in rows)
+    # 같은 날 종목 중 순위: 1..N, 확률이 높을수록 앞 순위
+    assert sorted(r["rank"] for r in rows) == list(range(1, len(rows) + 1))
+    assert all(r["rank_of"] == len(rows) for r in rows)
+    by_rank = sorted(rows, key=lambda r: r["rank"])
+    assert all(a["p_up"] >= b["p_up"] for a, b in zip(by_rank, by_rank[1:], strict=False))
+    top = by_rank[0]
+    d = client.get(f"/api/v1/stocks/{top['code']}/prediction").json()["data"]
+    assert d["rank"] == {"position": 1, "of": len(rows)}
+
+
+def test_stock_list_ignores_predictions_of_other_model_versions(sf, seeded, ctx, model_dir, client):
+    from decimal import Decimal
+
+    from app.models import Prediction
+
+    ps.run_daily_batch(sf, ctx, model_dir[0], seeded[-3])
+    code = sorted(make_synthetic(n_codes=N_CODES, n_days=10)[0]["code"].unique())[0]
+    with sf() as s:  # 더 최근 날짜지만 서빙 중이 아닌 모델의 예측
+        s.add(
+            Prediction(
+                code=code,
+                as_of_date=seeded[-1],
+                horizon=5,
+                close_at_asof=1000,
+                p_up=Decimal("0.99"),
+                q10=Decimal("0"),
+                q50=Decimal("0"),
+                q90=Decimal("0"),
+                model_version="old-model",
+            )
+        )
+        s.commit()
+    row = next(r for r in client.get("/api/v1/stocks").json()["data"] if r["code"] == code)
+    assert row["as_of_date"] == seeded[-3].isoformat() and row["p_up"] != 0.99
 
 
 def test_scheduler_post_close_runs_batch_after_prices(sf, monkeypatch):
@@ -454,3 +490,33 @@ def test_batch_context_requires_model_version(monkeypatch):
 
     monkeypatch.setattr(settings, "model_version", "")
     assert daily_batch.build_context(settings) is None
+
+
+def test_expected_from_rank_pools_tiers_of_the_same_bins_as_training(tmp_path):
+    (tmp_path / "v").mkdir()
+    table = [
+        {
+            "bin": b,
+            "mean_return": 0.01,
+            "median_return": 0,
+            "mean_excess": 0,
+            "up_ratio": 0.6 if b < 3 else (0.5 if b < 7 else 0.4),
+            "n": 100,
+        }
+        for b in range(10)
+    ]
+    (tmp_path / "v" / "metrics.json").write_text(json.dumps({"rank_returns": table}))
+    top = ps.expected_from_rank(tmp_path, "v", 1, 30)
+    assert (
+        top["tier"] == "상위권"
+        and top["n"] == 300
+        and top["up_ratio"] == pytest.approx(0.6)
+        and top["ups"] == 180
+    )
+    assert ps.expected_from_rank(tmp_path, "v", 9, 30)["tier"] == "상위권"  # 9/30 -> 3번째 구간까지 상위 30%
+    mid = ps.expected_from_rank(tmp_path, "v", 10, 30)
+    assert mid["tier"] == "중위권" and mid["n"] == 400 and mid["up_ratio"] == pytest.approx(0.5)
+    low = ps.expected_from_rank(tmp_path, "v", 30, 30)
+    assert low["tier"] == "하위권" and low["n"] == 300 and low["up_ratio"] == pytest.approx(0.4)
+    assert ps.expected_from_rank(tmp_path, "v", None, 30) is None
+    assert ps.expected_from_rank(tmp_path, "missing", 1, 30) is None

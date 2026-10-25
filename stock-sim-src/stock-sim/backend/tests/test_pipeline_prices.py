@@ -329,3 +329,37 @@ def test_empty_investor_response_keeps_prices_with_null_flow(monkeypatch):
     base = pd.DataFrame({"close": [1000.0]}, index=pd.to_datetime(["2026-01-02"]))
     joined = base.join(out, how="left")
     assert joined["close"].iloc[0] == 1000.0 and joined["foreign_net"].isna().all()
+
+
+def test_valuation_columns_stored_and_not_erased_by_rows_without_them(sf):
+    """PER/PBR/배당은 있으면 저장하고, 그 열이 없는 수집(예: 펀드)으로 기존 값을 지우지 않는다."""
+    from app.pipelines.collect_prices import upsert_prices
+
+    with sf() as s:
+        s.add(Stock(code="005930", name="삼성전자"))
+        s.flush()
+        df = frame([(date(2026, 10, 19), 70_000)]).assign(per=[12.345], pbr=[1.2], div_yield=[float("nan")])
+        upsert_prices(s, "005930", df)
+        s.flush()
+        upsert_prices(s, "005930", frame([(date(2026, 10, 19), 70_100)]))  # 밸류에이션 열 없음
+        s.flush()
+        row = s.get(PriceDaily, ("005930", date(2026, 10, 19)))
+        assert (
+            row.close == 70_100
+            and str(row.per) == "12.35"
+            and str(row.pbr) == "1.20"
+            and row.div_yield is None
+        )
+        s.rollback()
+
+
+def test_valuation_client_returns_empty_for_funds(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.clients import pykrx_client as pk
+
+    monkeypatch.setattr(
+        pk, "_stock", lambda: SimpleNamespace(get_market_fundamental=lambda *a: pd.DataFrame())
+    )
+    out = pk.valuation("088980", "20260101", "20261022")
+    assert out.empty and list(out.columns) == ["per", "pbr", "div_yield"]

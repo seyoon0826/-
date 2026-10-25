@@ -166,7 +166,7 @@ export default function PriceChart({
   return (
     <div>
       <div className="panel-h">
-        <span>일봉 · 예상 범위 음영(5거래일, q10~q90) · 마커를 누르면 뉴스/공시</span>
+        <span>일봉 차트. 오른쪽 음영은 5거래일 뒤 예상 범위(10~90%), 마커를 누르면 그날 뉴스와 공시를 봅니다</span>
         <span className="seg" role="group" aria-label="차트 기간">
           {RANGES.map((r) => (
             <button key={r} aria-pressed={range === r} onClick={() => onRangeChange(r)}>

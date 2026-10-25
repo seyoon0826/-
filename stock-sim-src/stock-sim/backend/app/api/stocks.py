@@ -10,10 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.common import ApiError, envelope, get_store
+from app.core.config import settings
 from app.core.db import get_db
-from app.models import Disclosure, News, NewsStockMap, Prediction, PriceDaily, Stock
+from app.models import Disclosure, News, NewsStockMap, PriceDaily, Stock
 from app.services.market_data import KST, make_quote
 from app.services.market_store import QuoteStore
+from app.services.prediction_service import expected_from_rank, latest_prediction, ranks_on
 from app.services.providers._book import synth_orderbook
 
 router = APIRouter()
@@ -63,19 +65,16 @@ def _quote_dict(q) -> dict:
 async def list_stocks(db: Session = Depends(get_db), store: QuoteStore = Depends(get_store)):
     def load():
         stocks = list(db.scalars(select(Stock).where(Stock.active.is_(True)).order_by(Stock.code)))
+        version = settings.model_version or None
         latest_pred = {}
-        for st in stocks:  # 종목별 최신 기준일 예측 (30종목이라 단순 조회로 충분)
-            pred = db.scalar(
-                select(Prediction)
-                .where(Prediction.code == st.code)
-                .order_by(Prediction.as_of_date.desc())
-                .limit(1)
-            )
+        for st in stocks:  # 종목별 최신 기준일 예측 (서빙 중인 모델, 30종목이라 단순 조회로 충분)
+            pred = latest_prediction(db, st.code, version)
             if pred:
                 latest_pred[st.code] = pred
-        return stocks, latest_pred, {s.code: _db_quote(db, s.code) for s in stocks}
+        ranks = {d: ranks_on(db, d, version) for d in {p.as_of_date for p in latest_pred.values()}}
+        return stocks, latest_pred, ranks, {s.code: _db_quote(db, s.code) for s in stocks}
 
-    stocks, preds, fallback = await run_in_threadpool(load)
+    stocks, preds, ranks, fallback = await run_in_threadpool(load)
     out = []
     for s in stocks:
         q = await store.get_quote(s.code) or fallback[s.code]
@@ -88,6 +87,21 @@ async def list_stocks(db: Session = Depends(get_db), store: QuoteStore = Depends
                 "change_pct": q.change_pct if q else None,
                 "p_up": float(p.p_up) if p else None,
                 "as_of_date": p.as_of_date.isoformat() if p else None,
+                # 같은 날 종목 중 상승확률 순위 (1 = 가장 높음)
+                "rank": ranks[p.as_of_date].get(s.code, (None, None))[0] if p else None,
+                "rank_of": ranks[p.as_of_date].get(s.code, (None, None))[1] if p else None,
+                # 5거래일 뒤 수익률 예상: 중앙값과 10~90% 범위 (소수, 0.012 = +1.2%)
+                "q10": float(p.q10) if p else None,
+                "q50": float(p.q50) if p else None,
+                "q90": float(p.q90) if p else None,
+                # 같은 순위대 종목의 과거 실제 5일 평균 수익률 (walk-forward 테스트 구간)
+                "expected": (
+                    expected_from_rank(
+                        settings.model_dir, p.model_version, *ranks[p.as_of_date].get(s.code, (None, None))
+                    )
+                    if p
+                    else None
+                ),
             }
         )
     return envelope(out)

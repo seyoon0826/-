@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -27,12 +27,15 @@ from app.core.security import (
     InvalidToken,
     create_access_token,
     create_refresh_token,
+    decode_oauth_state,
     decode_refresh_token,
+    encode_oauth_state,
     hash_password,
     needs_rehash,
     verify_password,
 )
 from app.models import User
+from app.services import oauth
 from app.services.market_data import KST
 from app.services.market_store import QuoteStore
 
@@ -53,7 +56,12 @@ class Credentials(BaseModel):
 
 
 def _user_dict(u: User) -> dict[str, Any]:
-    return {"id": u.id, "email": u.email, "created_at": u.created_at.astimezone(KST).isoformat()}
+    return {
+        "id": u.id,
+        "email": u.email,
+        "display_name": u.display_name,
+        "created_at": u.created_at.astimezone(KST).isoformat(),
+    }
 
 
 def _issue(response: Response, u: User) -> dict[str, Any]:
@@ -134,7 +142,7 @@ async def login(body: Credentials, response: Response, db: Session = Depends(get
 
     def work() -> dict[str, Any]:
         u = _find(db, email)
-        if u is None:
+        if u is None or u.password_hash is None:  # 소셜로만 가입한 계정은 비밀번호 로그인 불가
             verify_password(_DUMMY_HASH, body.password)
             raise ApiError(401, "UNAUTHORIZED", "이메일 또는 비밀번호가 올바르지 않습니다.")
         if not verify_password(u.password_hash, body.password):
@@ -201,3 +209,97 @@ async def me(user_id: int = Depends(current_user_id), db: Session = Depends(get_
     u = await run_in_threadpool(db.get, User, user_id)
     assert u is not None
     return envelope(_user_dict(u))
+
+
+# ---------------------------------------------------------------- 소셜 로그인 (카카오, 구글)
+OAUTH_COOKIE = "oauth_state"
+OAUTH_COOKIE_PATH = "/api/v1/auth/oauth"
+OAUTH_STATE_SECONDS = 600
+
+
+@router.get("/oauth/providers")
+async def oauth_providers():
+    """설정된(키가 있는) 소셜 로그인 제공자. 프론트는 이 목록의 버튼만 보여준다."""
+    return envelope([{"id": p.name, "label": p.label} for p in oauth.PROVIDERS.values() if p.enabled])
+
+
+def _provider(name: str) -> oauth.Provider:
+    p = oauth.PROVIDERS.get(name)
+    if p is None or not p.enabled:
+        raise ApiError(404, "PROVIDER_NOT_AVAILABLE", "지원하지 않거나 설정되지 않은 로그인 방식입니다.")
+    return p
+
+
+@router.get("/oauth/{provider}/start", dependencies=[Depends(rate_limit)])
+async def oauth_start(provider: str, next: str | None = None):
+    """제공자 로그인 화면으로 보낸다.
+    state(CSRF)와 PKCE verifier 는 서명한 httpOnly 쿠키에 담아 콜백에서 확인한다."""
+    p = _provider(provider)
+    state = oauth.new_state()
+    verifier, challenge = oauth.pkce_pair() if p.pkce else (None, None)
+    resp = RedirectResponse(p.authorize(state, challenge), status_code=302)
+    resp.set_cookie(
+        OAUTH_COOKIE,
+        encode_oauth_state(
+            {"provider": p.name, "state": state, "verifier": verifier, "next": oauth.safe_next(next)},
+            OAUTH_STATE_SECONDS,
+        ),
+        max_age=OAUTH_STATE_SECONDS,
+        httponly=True,
+        secure=settings.refresh_cookie_secure,
+        samesite="lax",  # 제공자에서 돌아오는 최상위 GET 이동에는 쿠키가 실린다
+        path=OAUTH_COOKIE_PATH,
+    )
+    return resp
+
+
+def _back_to_front(path: str, error: str | None = None) -> RedirectResponse:
+    url = settings.frontend_url.rstrip("/") + path
+    if error:
+        url += ("&" if "?" in url else "?") + f"login_error={error}"
+    resp = RedirectResponse(url, status_code=302)
+    resp.delete_cookie(OAUTH_COOKIE, path=OAUTH_COOKIE_PATH)
+    return resp
+
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(
+    provider: str,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+    oauth_state: str | None = Cookie(None),
+):
+    """제공자에서 돌아온 뒤: state 확인 -> 코드 교환 -> 사용자 찾기/만들기 -> 리프레시 쿠키 -> 프론트로.
+    프론트는 기존처럼 /auth/refresh 로 액세스 토큰을 받는다."""
+    try:
+        saved = decode_oauth_state(oauth_state or "")
+    except InvalidToken:
+        return _back_to_front("/paper", "state_expired")
+    nxt = oauth.safe_next(saved.get("next"))
+    if error:  # 사용자가 동의를 취소한 경우 등
+        return _back_to_front(nxt, "cancelled")
+    if saved.get("provider") != provider or not state or state != saved.get("state") or not code:
+        return _back_to_front(nxt, "state_mismatch")
+    try:
+        p = _provider(provider)
+    except ApiError:
+        return _back_to_front(nxt, "provider_not_available")
+
+    def work() -> User:
+        token = p.exchange(code, saved.get("verifier"))
+        user = oauth.find_or_create_user(db, p.profile(token))
+        db.commit()
+        return user
+
+    try:
+        user = await run_in_threadpool(work)
+    except oauth.OAuthError as e:
+        db.rollback()
+        log.warning("소셜 로그인 실패 provider=%s reason=%s", provider, e)
+        return _back_to_front(nxt, str(e))
+    # login=ok: 프론트가 새로 생긴 리프레시 쿠키로 로그인을 복구하라는 신호
+    resp = _back_to_front(nxt + ("&" if "?" in nxt else "?") + "login=ok")
+    _issue(resp, user)  # 리프레시 쿠키만 쓴다 (액세스 토큰은 프론트가 /auth/refresh 로 받는다)
+    return resp

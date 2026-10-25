@@ -8,6 +8,7 @@ import { logout, useAuth } from "@/lib/auth";
 const LINKS = [
   { href: "/predict", label: "예측" },
   { href: "/paper", label: "모의투자" },
+  { href: "/ranking", label: "랭킹" },
   { href: "/performance", label: "성적표" },
 ];
 
@@ -16,7 +17,7 @@ export default function NavLinks() {
   const { user, ready } = useAuth();
   return (
     <nav className="nav" aria-label="주 메뉴">
-      <Link href="/predict" className="brand">
+      <Link href="/" className="brand">
         StockSim
       </Link>
       {LINKS.map((l) => (
@@ -27,8 +28,8 @@ export default function NavLinks() {
       <span className="nav-user">
         {ready && user ? (
           <>
-            <span className="label" title={user.email}>
-              {user.email}
+            <span className="label" title={user.email ?? undefined}>
+              {user.display_name ?? user.email ?? "내 계정"}
             </span>
             <button className="btn btn-sm" type="button" onClick={() => void logout()}>
               로그아웃

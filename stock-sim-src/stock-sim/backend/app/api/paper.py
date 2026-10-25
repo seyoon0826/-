@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.common import ApiError, envelope, get_store
-from app.api.deps import current_user_id
+from app.api.deps import current_user_id, optional_user_id
 from app.core.db import get_db
 from app.models import Order, PaperAccount, Position, Prediction, Trade
 from app.services.market_data import KST
@@ -311,6 +311,23 @@ async def get_performance(
 ):
     a = _user_account(db, user_id, "USER" if account == "me" else "AI")
     return envelope(await run_in_threadpool(acc.performance, db, a))
+
+
+@router.get("/leaderboard")
+async def get_leaderboard(
+    limit: int = Query(50, ge=1, le=200),
+    viewer_id: int | None = Depends(optional_user_id),
+    db: Session = Depends(get_db),
+):
+    """모의투자 수익률 랭킹 (로그인 없이 볼 수 있다. 이름은 가린다). 평가는 최근 종가 기준."""
+
+    def work() -> dict:
+        codes = list(db.scalars(select(Position.code).where(Position.qty > 0).distinct()))
+        prices = {c: p for c in codes if (p := last_close(db, c))}
+        return acc.leaderboard(db, prices, viewer_id, limit)
+
+    data = await run_in_threadpool(work)
+    return envelope(data, {"valuation": "최근 종가", "eligibility": "체결 1회 이상인 계좌"})
 
 
 @router.get("/estimate")

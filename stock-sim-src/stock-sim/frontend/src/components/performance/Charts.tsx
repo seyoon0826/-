@@ -16,10 +16,10 @@ export function CalibrationChart({ bins }: { bins: CalibrationBin[] }) {
       {[0, 0.25, 0.5, 0.75, 1].map((t) => (
         <g key={t}>
           <line x1={sx(0)} x2={sx(1)} y1={sy(t)} y2={sy(t)} stroke="var(--border)" />
-          <text x={P - 6} y={sy(t) + 3} fontSize="9" textAnchor="end" fill="var(--text-2)">
+          <text x={P - 6} y={sy(t) + 3} fontSize="12" textAnchor="end" fill="var(--text-2)">
             {Math.round(t * 100)}%
           </text>
-          <text x={sx(t)} y={H - P + 14} fontSize="9" textAnchor="middle" fill="var(--text-2)">
+          <text x={sx(t)} y={H - P + 14} fontSize="12" textAnchor="middle" fill="var(--text-2)">
             {Math.round(t * 100)}%
           </text>
         </g>
@@ -45,10 +45,10 @@ export function CalibrationChart({ bins }: { bins: CalibrationBin[] }) {
           <title>{`예측 ${Math.round((b.p_mean as number) * 100)}% → 실제 ${Math.round((b.actual as number) * 100)}% (n=${b.n})`}</title>
         </circle>
       ))}
-      <text x={W / 2} y={H - 2} fontSize="10" textAnchor="middle" fill="var(--text-2)">
+      <text x={W / 2} y={H - 2} fontSize="12" textAnchor="middle" fill="var(--text-2)">
         예측 상승확률
       </text>
-      <text x={10} y={P - 10} fontSize="10" fill="var(--text-2)">
+      <text x={10} y={P - 10} fontSize="12" fill="var(--text-2)">
         실제 상승 비율
       </text>
     </svg>
@@ -72,7 +72,7 @@ export function HitTrend({ daily }: { daily: { date: string; cumulative_hit_rate
             stroke={t === 0.5 ? "var(--text-3)" : "var(--border)"}
             strokeDasharray={t === 0.5 ? "4 3" : undefined}
           />
-          <text x={P - 6} y={sy(t) + 3} fontSize="9" textAnchor="end" fill="var(--text-2)">
+          <text x={P - 6} y={sy(t) + 3} fontSize="12" textAnchor="end" fill="var(--text-2)">
             {Math.round(t * 100)}%
           </text>
         </g>
@@ -86,10 +86,10 @@ export function HitTrend({ daily }: { daily: { date: string; cumulative_hit_rate
         strokeWidth="2"
         points={daily.map((d, i) => `${x(i)},${sy(d.cumulative_hit_rate)}`).join(" ")}
       />
-      <text x={P} y={H - 8} fontSize="9" fill="var(--text-2)">
+      <text x={P} y={H - 8} fontSize="12" fill="var(--text-2)">
         {daily[0].date}
       </text>
-      <text x={W - P} y={H - 8} fontSize="9" textAnchor="end" fill="var(--text-2)">
+      <text x={W - P} y={H - 8} fontSize="12" textAnchor="end" fill="var(--text-2)">
         {daily[daily.length - 1].date}
       </text>
     </svg>

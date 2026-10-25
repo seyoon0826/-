@@ -236,7 +236,24 @@ def test_ws_paper_rejects_bad_token(env):
     c, *_ = env
     from starlette.websockets import WebSocketDisconnect
 
-    with pytest.raises(WebSocketDisconnect) as e, c.websocket_connect("/api/v1/ws/paper?token=bad") as ws:
+    with pytest.raises(WebSocketDisconnect) as e, c.websocket_connect("/api/v1/ws/paper") as ws:
+        ws.send_json({"type": "auth", "token": "bad"})
+        ws.receive_json()
+    assert e.value.code == 4401
+
+
+def test_ws_paper_ignores_token_in_url_so_it_never_reaches_access_logs(env, user):
+    """토큰은 첫 메시지로만 받는다. 주소의 ?token= 은 무시 (접속 로그에 남지 않게)."""
+    c, *_ = env
+    _, h = user
+    token = h["Authorization"].split()[1]
+    from starlette.websockets import WebSocketDisconnect
+
+    with (
+        pytest.raises(WebSocketDisconnect) as e,
+        c.websocket_connect(f"/api/v1/ws/paper?token={token}") as ws,
+    ):
+        ws.send_json({"type": "hello"})  # auth 메시지가 아니면 거절
         ws.receive_json()
     assert e.value.code == 4401
 
@@ -246,7 +263,8 @@ def test_ws_paper_pushes_portfolio_then_order_and_trade_events(env, user):
     p, h = user
     _market(store)
     token = h["Authorization"].split()[1]
-    with c.websocket_connect(f"/api/v1/ws/paper?token={token}") as ws:
+    with c.websocket_connect("/api/v1/ws/paper") as ws:
+        ws.send_json({"type": "auth", "token": token})
         first = ws.receive_json()
         assert first["type"] == "portfolio" and first["total_value"] == 10_000_000
         import time
@@ -259,3 +277,24 @@ def test_ws_paper_pushes_portfolio_then_order_and_trade_events(env, user):
         )
         got = [ws.receive_json()["type"] for _ in range(2)]
     assert got == ["trade", "order_update"]
+
+
+def test_leaderboard_is_public_and_marks_me_when_logged_in(env, user):
+    c, sf, store = env
+    p, h = user
+    _market(store)
+    assert (
+        c.post(
+            "/api/v1/paper/orders",
+            json={"code": "005930", "side": "BUY", "order_type": "MARKET", "qty": 3},
+            headers=h,
+        ).status_code
+        == 201
+    )
+    anon = c.get("/api/v1/paper/leaderboard")
+    assert anon.status_code == 200 and anon.json()["data"]["total"] == 1
+    assert anon.json()["data"]["me"] is None and anon.json()["meta"]["valuation"] == "최근 종가"
+    mine = c.get("/api/v1/paper/leaderboard", headers=h).json()["data"]
+    assert mine["me"]["rank"] == 1 and mine["rows"][0]["is_me"]
+    bad = c.get("/api/v1/paper/leaderboard", headers={"Authorization": "Bearer nope"})
+    assert bad.status_code == 200 and bad.json()["data"]["me"] is None  # 틀린 토큰도 공개 화면은 보인다

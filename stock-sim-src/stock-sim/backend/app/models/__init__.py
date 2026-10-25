@@ -5,6 +5,7 @@ from app.models.paper import (
     CashLedger,
     FeeConfig,
     JobRun,
+    OAuthAccount,
     Order,
     PaperAccount,
     PortfolioSnapshot,
@@ -46,5 +47,6 @@ __all__ = [
     "PriceDaily",
     "Stock",
     "Trade",
+    "OAuthAccount",
     "User",
 ]

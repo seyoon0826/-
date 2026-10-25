@@ -10,15 +10,27 @@ import pandas as pd
 FILES = {"prices": "prices_daily.csv", "index": "index_daily.csv", "macro": "macro_daily.csv"}
 
 
-def load_csv(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame | None, pd.DataFrame | None]:
+UNIVERSE_FILE = "universe_history.csv"  # 시점별 시총 상위 명단 (scripts/collect_training_universe.py)
+
+
+def load_csv(
+    data_dir: str | Path, prices_file: str | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame | None, pd.DataFrame | None]:
+    """prices_file: 기본 prices_daily.csv(서비스 종목). 확장 유니버스 학습은 prices_daily_all.csv."""
     d = Path(data_dir)
-    prices = pd.read_csv(d / FILES["prices"], dtype={"code": str}, parse_dates=["date"])
+    prices = pd.read_csv(d / (prices_file or FILES["prices"]), dtype={"code": str}, parse_dates=["date"])
     prices["code"] = prices["code"].str.zfill(6)
     index = pd.read_csv(d / FILES["index"], parse_dates=["date"]) if (d / FILES["index"]).exists() else None
     if index is not None and "index_code" in index:
         index = index[index["index_code"] == "KOSPI"]
     macro = pd.read_csv(d / FILES["macro"], parse_dates=["date"]) if (d / FILES["macro"]).exists() else None
     return prices, index, macro
+
+
+def load_members(data_dir: str | Path) -> pd.DataFrame:
+    m = pd.read_csv(Path(data_dir) / UNIVERSE_FILE, dtype={"code": str}, parse_dates=["date"])
+    m["code"] = m["code"].str.zfill(6)
+    return m[["date", "code"]]
 
 
 def data_hash(*frames: pd.DataFrame | None) -> str:
