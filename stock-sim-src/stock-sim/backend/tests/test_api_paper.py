@@ -298,3 +298,7 @@ def test_leaderboard_is_public_and_marks_me_when_logged_in(env, user):
     assert mine["me"]["rank"] == 1 and mine["rows"][0]["is_me"]
     bad = c.get("/api/v1/paper/leaderboard", headers={"Authorization": "Bearer nope"})
     assert bad.status_code == 200 and bad.json()["data"]["me"] is None  # 틀린 토큰도 공개 화면은 보인다
+    with sf() as s:  # 관리자가 랭킹에서 숨기면 빠진다
+        s.get(User, p.user_id).hidden_from_ranking = True
+        s.commit()
+    assert c.get("/api/v1/paper/leaderboard").json()["data"]["total"] == 0

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from app.api import auth, paper, performance, predictions, stocks, ws  # noqa: E402
+from app.api import admin, auth, paper, performance, predictions, stocks, ws  # noqa: E402
 from app.api.common import ApiError, api_error_handler  # noqa: E402
 from app.core.config import settings  # noqa: E402
 
@@ -44,6 +44,7 @@ app.include_router(predictions.router, prefix=f"{API_PREFIX}/stocks", tags=["pre
 app.include_router(performance.router, prefix=f"{API_PREFIX}/model", tags=["performance"])
 app.include_router(paper.router, prefix=f"{API_PREFIX}/paper", tags=["paper"])
 app.include_router(ws.router, prefix=API_PREFIX, tags=["ws"])
+app.include_router(admin.router, prefix=f"{API_PREFIX}/admin", tags=["admin"])
 
 
 @app.get("/health")

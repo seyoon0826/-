@@ -38,6 +38,24 @@ class User(Base):
         Integer, server_default="0"
     )  # 로그아웃 시 +1 (리프레시 무효화)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 관리자가 정지
+    suspend_reason: Mapped[str | None] = mapped_column(String(200))
+    hidden_from_ranking: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+
+
+class AdminAudit(Base):
+    """관리자가 한 일 (정지, 해제, 강제 로그아웃, 랭킹 숨김)."""
+
+    __tablename__ = "admin_audit"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    admin_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String(32))
+    target_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    detail: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_admin_audit_created", "created_at"),)
 
 
 class OAuthAccount(Base):

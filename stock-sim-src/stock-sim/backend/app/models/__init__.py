@@ -2,6 +2,7 @@
 
 from app.models.news import Disclosure, News, NewsAnalysis, NewsStockMap
 from app.models.paper import (
+    AdminAudit,
     CashLedger,
     FeeConfig,
     JobRun,
@@ -24,6 +25,7 @@ from app.models.prediction import (
 from app.models.stock import IndexDaily, MacroDaily, MarketCalendar, PriceDaily, Stock
 
 __all__ = [
+    "AdminAudit",
     "CashLedger",
     "Disclosure",
     "FeeConfig",

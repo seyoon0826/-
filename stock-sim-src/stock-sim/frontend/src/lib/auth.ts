@@ -13,6 +13,7 @@ export interface AuthUser {
   email: string | null; // 소셜 로그인은 이메일이 없을 수 있다 (네이버는 인증 여부를 몰라 저장하지 않음)
   display_name: string | null;
   created_at: string;
+  is_admin?: boolean;
 }
 
 interface Session {

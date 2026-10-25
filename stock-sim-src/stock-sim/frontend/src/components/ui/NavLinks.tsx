@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import ThemeToggle from "@/components/ui/ThemeToggle";
 import { logout, useAuth } from "@/lib/auth";
 
 const LINKS = [
@@ -25,7 +26,13 @@ export default function NavLinks() {
           {l.label}
         </Link>
       ))}
+      {user?.is_admin && (
+        <Link href="/admin" className={path?.startsWith("/admin") ? "active" : ""}>
+          관리자
+        </Link>
+      )}
       <span className="nav-user">
+        <ThemeToggle />
         {ready && user ? (
           <>
             <span className="label" title={user.email ?? undefined}>

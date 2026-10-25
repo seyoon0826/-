@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import NavLinks from "@/components/ui/NavLinks";
 import { ToastProvider } from "@/components/ui/Toast";
+import { THEME_SCRIPT } from "@/lib/theme";
 import { DISCLAIMER } from "@/types";
 
 import "./globals.css";
@@ -29,7 +30,11 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ko" className={`${latin.variable} ${korean.variable}`}>
+    // data-theme 은 첫 그림 전에 스크립트가 정하므로 서버 HTML 과 다를 수 있다 (suppressHydrationWarning)
+    <html lang="ko" className={`${latin.variable} ${korean.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>
         <ToastProvider>
           <header className="topbar">

@@ -13,7 +13,7 @@ import {
 } from "lightweight-charts";
 import { useEffect, useRef, useState } from "react";
 
-import { cssVar as css } from "@/lib/theme";
+import { cssVar as css, useTheme } from "@/lib/theme";
 import type { Candle, ChartMarker } from "@/types";
 
 export const RANGES = ["1M", "3M", "6M", "1Y", "3Y"] as const;
@@ -60,6 +60,7 @@ export default function PriceChart({
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lastBar = useRef<Candle | null>(null);
   const [picked, setPicked] = useState<ChartMarker[]>([]);
+  const theme = useTheme(); // 모드가 바뀌면 차트를 새 색으로 다시 만든다
 
   useEffect(() => {
     if (!ref.current || candles.length === 0) return;
@@ -146,7 +147,7 @@ export default function PriceChart({
       chartRef.current = null;
       candleRef.current = null;
     };
-  }, [candles, forecast, markers, height]);
+  }, [candles, forecast, markers, height, theme]);
 
   // 장중 실시간 가격으로 마지막 봉 갱신 (FR-ST-3)
   useEffect(() => {

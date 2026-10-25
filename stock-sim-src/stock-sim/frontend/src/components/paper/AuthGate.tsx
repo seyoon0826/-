@@ -21,6 +21,7 @@ const LOGIN_ERRORS: Record<string, string> = {
   profile_failed: "계정 정보를 받지 못했습니다. 잠시 뒤 다시 시도하세요.",
   provider_unreachable: "로그인 서비스에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요.",
   provider_not_available: "이 로그인 방식은 지금 쓸 수 없습니다.",
+  suspended: "이용이 정지된 계정입니다. 문의가 필요하면 운영자에게 연락하세요.",
 };
 
 function NaverMark() {

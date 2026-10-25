@@ -36,6 +36,7 @@ from app.core.security import (
 )
 from app.models import User
 from app.services import oauth
+from app.services.admin import is_admin
 from app.services.market_data import KST
 from app.services.market_store import QuoteStore
 
@@ -55,16 +56,22 @@ class Credentials(BaseModel):
     password: str
 
 
-def _user_dict(u: User) -> dict[str, Any]:
+def _user_dict(u: User, db: Session | None = None) -> dict[str, Any]:
     return {
         "id": u.id,
         "email": u.email,
         "display_name": u.display_name,
         "created_at": u.created_at.astimezone(KST).isoformat(),
+        "is_admin": bool(db is not None and is_admin(db, u)),
     }
 
 
-def _issue(response: Response, u: User) -> dict[str, Any]:
+def _check_active(u: User) -> None:
+    if u.suspended_at is not None:
+        raise ApiError(403, "ACCOUNT_SUSPENDED", "이용이 정지된 계정입니다.")
+
+
+def _issue(response: Response, u: User, db: Session | None = None) -> dict[str, Any]:
     response.set_cookie(
         COOKIE,
         create_refresh_token(u.id, u.token_version),
@@ -78,7 +85,7 @@ def _issue(response: Response, u: User) -> dict[str, Any]:
         "access_token": create_access_token(u.id),
         "token_type": "bearer",
         "expires_in": settings.access_token_minutes * 60,
-        "user": _user_dict(u),
+        "user": _user_dict(u, db),
     }
 
 
@@ -131,7 +138,7 @@ async def signup(body: Credentials, response: Response, db: Session = Depends(ge
             db.rollback()
             raise ApiError(409, "EMAIL_TAKEN", "이미 가입된 이메일입니다.") from None
         db.refresh(u)
-        return _issue(response, u)
+        return _issue(response, u, db)
 
     return envelope(await run_in_threadpool(work))
 
@@ -147,10 +154,11 @@ async def login(body: Credentials, response: Response, db: Session = Depends(get
             raise ApiError(401, "UNAUTHORIZED", "이메일 또는 비밀번호가 올바르지 않습니다.")
         if not verify_password(u.password_hash, body.password):
             raise ApiError(401, "UNAUTHORIZED", "이메일 또는 비밀번호가 올바르지 않습니다.")
+        _check_active(u)
         if needs_rehash(u.password_hash):
             u.password_hash = hash_password(body.password)
             db.commit()
-        return _issue(response, u)
+        return _issue(response, u, db)
 
     return envelope(await run_in_threadpool(work))
 
@@ -165,6 +173,7 @@ def _from_refresh(db: Session, token: str | None) -> User:
     u = db.get(User, uid)
     if u is None or u.token_version != ver:
         raise ApiError(401, "UNAUTHORIZED", "로그인이 만료됐습니다. 다시 로그인하세요.")
+    _check_active(u)
     return u
 
 
@@ -175,7 +184,7 @@ async def refresh(
     """새 액세스 토큰 + 리프레시 쿠키 재발급(만료일 연장)."""
 
     def work() -> dict[str, Any]:
-        return _issue(response, _from_refresh(db, refresh_token))
+        return _issue(response, _from_refresh(db, refresh_token), db)
 
     try:
         return envelope(await run_in_threadpool(work))
@@ -208,7 +217,7 @@ async def logout(response: Response, db: Session = Depends(get_db), refresh_toke
 async def me(user_id: int = Depends(current_user_id), db: Session = Depends(get_db)):
     u = await run_in_threadpool(db.get, User, user_id)
     assert u is not None
-    return envelope(_user_dict(u))
+    return envelope(await run_in_threadpool(_user_dict, u, db))
 
 
 # ---------------------------------------------------------------- 소셜 로그인 (네이버, 구글)
@@ -299,6 +308,8 @@ async def oauth_callback(
         db.rollback()
         log.warning("소셜 로그인 실패 provider=%s reason=%s", provider, e)
         return _back_to_front(nxt, str(e))
+    if user.suspended_at is not None:
+        return _back_to_front(nxt, "suspended")
     # login=ok: 프론트가 새로 생긴 리프레시 쿠키로 로그인을 복구하라는 신호
     resp = _back_to_front(nxt + ("&" if "?" in nxt else "?") + "login=ok")
     _issue(resp, user)  # 리프레시 쿠키만 쓴다 (액세스 토큰은 프론트가 /auth/refresh 로 받는다)

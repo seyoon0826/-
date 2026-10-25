@@ -19,8 +19,11 @@ def user_id_from_token(token: str | None, db: Session) -> int:
         uid = decode_access_token(token)
     except InvalidToken:
         raise ApiError(401, "UNAUTHORIZED", "토큰이 유효하지 않거나 만료됐습니다.") from None
-    if db.get(User, uid) is None:
+    u = db.get(User, uid)
+    if u is None:
         raise ApiError(401, "UNAUTHORIZED", "사용자를 찾을 수 없습니다.")
+    if u.suspended_at is not None:
+        raise ApiError(403, "ACCOUNT_SUSPENDED", "이용이 정지된 계정입니다.")
     return uid
 
 
@@ -28,6 +31,14 @@ def current_user_id(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer), db: Session = Depends(get_db)
 ) -> int:
     return user_id_from_token(creds.credentials if creds else None, db)
+
+
+def current_admin_id(user_id: int = Depends(current_user_id), db: Session = Depends(get_db)) -> int:
+    from app.services.admin import is_admin
+
+    if not is_admin(db, db.get(User, user_id)):
+        raise ApiError(403, "FORBIDDEN", "관리자만 쓸 수 있습니다.")
+    return user_id
 
 
 def optional_user_id(

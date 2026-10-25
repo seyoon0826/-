@@ -225,6 +225,8 @@ def leaderboard(
         if a.id not in traded:
             continue
         u = users.get(a.user_id)
+        if u is not None and (u.hidden_from_ranking or u.suspended_at is not None):
+            continue  # 관리자가 숨긴 사용자, 정지된 사용자
         ai = ai_by_user.get(a.user_id)
         rows.append(
             {

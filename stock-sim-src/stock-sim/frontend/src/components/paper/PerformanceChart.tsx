@@ -4,13 +4,14 @@ import { ColorType, createChart, type Time } from "lightweight-charts";
 import { useEffect, useRef } from "react";
 
 import { Empty } from "@/components/ui/States";
-import { cssVar as css } from "@/lib/theme";
+import { cssVar as css, useTheme } from "@/lib/theme";
 import type { PaperPerformance } from "@/types";
 
 /** 수익률 곡선: 나 vs KOSPI vs AI (SPEC 13.3, FR-PT-7). 매일 16:30 스냅샷 기준. */
 export default function PerformanceChart({ me, ai }: { me?: PaperPerformance; ai?: PaperPerformance }) {
   const ref = useRef<HTMLDivElement>(null);
   const has = (me?.curve.length ?? 0) > 0;
+  const theme = useTheme(); // 모드가 바뀌면 새 색으로 다시 그린다
 
   useEffect(() => {
     if (!ref.current || !me || !has) return;
@@ -51,7 +52,7 @@ export default function PerformanceChart({ me, ai }: { me?: PaperPerformance; ai
       );
     chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [me, ai, has]);
+  }, [me, ai, has, theme]);
 
   if (!has) return <Empty title="아직 수익률 곡선이 없습니다">매 거래일 16:30 에 그날의 총자산이 기록됩니다.</Empty>;
   return <div ref={ref} style={{ width: "100%", height: 240 }} />;
