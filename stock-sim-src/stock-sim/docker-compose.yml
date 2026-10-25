@@ -3,7 +3,8 @@
 #
 # - migrate 가 먼저 한 번 돌고(alembic upgrade head), 성공해야 api/scheduler/marketdata 가 뜬다.
 # - 백엔드 이미지에는 backend/ 와 ml/src(학습-서빙 공유 피처 코드)가 들어간다. 모델 산출물(ml/models)은 읽기 전용 마운트.
-# - 도메인 연결 시: .env 의 CORS_ORIGINS, REFRESH_COOKIE_SECURE=true, NEXT_PUBLIC_API_URL(빌드 인자) 을 바꾼다.
+# - 서버 배포: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build (deploy/README.md)
+# - 포트는 이 컴퓨터(127.0.0.1)에만 연다. 외부 공개는 운영 설정의 Caddy(HTTPS)만 한다.
 
 x-backend: &backend
   build:
@@ -12,7 +13,7 @@ x-backend: &backend
   image: stocksim-backend
   env_file: [{ path: .env, required: false }]  # CI 빌드에는 .env 가 없다
   environment:
-    DATABASE_URL: postgresql+psycopg://stock:stock@db:5432/stocksim
+    DATABASE_URL: postgresql+psycopg://stock:${POSTGRES_PASSWORD:-stock}@db:5432/stocksim
     REDIS_URL: redis://redis:6379/0
     MODEL_DIR: /ml/models
     ML_ROOT: /ml
@@ -21,10 +22,11 @@ x-backend: &backend
 
 services:
   db:
-    image: timescale/timescaledb:latest-pg16  # 기존 볼륨과 같은 확장 버전 유지 (태그 변경 시 재생성 주의)
+    # 확장 버전을 고정한다: DB 를 덤프/복원으로 옮길 때 양쪽 TimescaleDB 버전이 같아야 한다
+    image: timescale/timescaledb:2.31.0-pg16
     environment:
       POSTGRES_USER: stock
-      POSTGRES_PASSWORD: stock
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stock}
       POSTGRES_DB: stocksim
     ports: ["127.0.0.1:5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
@@ -53,7 +55,7 @@ services:
   api:
     <<: *backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
     depends_on: &after_migrate
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -77,8 +79,9 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     image: stocksim-frontend
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     depends_on:
       api: { condition: service_healthy }
     restart: unless-stopped

@@ -1,0 +1,3 @@
+# deploy/server.conf 로 복사해서 채운다 (git 에 올라가지 않는다)
+HOST=ubuntu@<고정 IP>
+KEY=~/.ssh/<Lightsail 키>.pem

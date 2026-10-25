@@ -14,3 +14,7 @@ htmlcov/
 
 # taste-skill 작업 파일 (스크린샷, 방향 시트)
 .taste-skill/
+
+# 서버용 환경 파일 (비밀번호, 키 포함)
+deploy/.env.production
+deploy/server.conf

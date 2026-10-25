@@ -1,0 +1,26 @@
+# 서버 운영용 덧씌우기. 사용: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# 주소 하나(SITE_DOMAIN)로 모두 서비스한다: /api/* 는 백엔드, 나머지는 프론트. Caddy 가 HTTPS 인증서를 자동으로 받는다.
+# 필요한 .env 값: SITE_DOMAIN, POSTGRES_PASSWORD, NEXT_PUBLIC_API_URL, NEXT_PUBLIC_SITE_URL 등 (deploy/.env.production.example)
+
+services:
+  api:
+    environment:
+      # Caddy 뒤에서 X-Forwarded-For 를 믿는다 (로그인 레이트 리밋이 실제 사용자 IP 기준이 되도록).
+      # api 포트는 127.0.0.1 에만 열려 있어 외부에서 이 헤더를 위조해 직접 들어올 수 없다.
+      FORWARDED_ALLOW_IPS: "*"
+
+  caddy:
+    image: caddy:2.8-alpine
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?SITE_DOMAIN 을 .env 에 넣으세요}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api, frontend]
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
