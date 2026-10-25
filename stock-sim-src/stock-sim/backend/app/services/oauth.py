@@ -1,10 +1,16 @@
-"""소셜 로그인 (카카오, 구글) — OAuth 2.0 인가 코드 흐름.
+"""소셜 로그인 (네이버, 구글) — OAuth 2.0 인가 코드 흐름.
 
-스펙 출처 (2026-10-24 확인):
-- 카카오 REST API 로그인 https://developers.kakao.com/docs/ko/kakaologin/rest-api
-  인가 GET kauth.kakao.com/oauth/authorize, 토큰 POST kauth.kakao.com/oauth/token (form,
-  client_secret 은 기본 사용), 사용자 GET kapi.kakao.com/v2/user/me (id, kakao_account.email,
-  kakao_account.is_email_verified, kakao_account.profile.nickname). 문서에 PKCE 언급이 없어 state 만 쓴다.
+스펙 출처:
+- 네이버 로그인 API (2026-10-25 확인, github.com/naver/naver-openapi-guide
+  ko/login/api/api.md, ko/login/profile/profile.md)
+  인가 nid.naver.com/oauth2.0/authorize (response_type, client_id, redirect_uri, state 필수),
+  토큰 nid.naver.com/oauth2.0/token (grant_type=authorization_code, client_id, client_secret, code,
+  state 필수.
+  실패해도 200 에 error/error_description 으로 올 수 있어 access_token 유무로 판단),
+  사용자 GET openapi.naver.com/v1/nid/me -> {resultcode:"00", response:{id, email, name, nickname}}.
+  id 는 앱별 고유값. 이메일은 사용자가 바꾼 외부 주소일 수 있고 인증 여부 표시가 없어
+  '인증 안 된 이메일'로 다룬다.
+  문서에 PKCE 언급이 없어 state 만 쓴다.
 - 구글 https://developers.google.com/identity/protocols/oauth2/web-server ,
   https://developers.google.com/identity/openid-connect/openid-connect
   인가 accounts.google.com/o/oauth2/v2/auth, 토큰 POST oauth2.googleapis.com/token,
@@ -48,6 +54,13 @@ class Profile:
     name: str | None
 
 
+# 제공자 -> (client_id, client_secret) 설정 이름
+_KEYS = {
+    "naver": ("naver_login_client_id", "naver_login_client_secret"),
+    "google": ("google_client_id", "google_client_secret"),
+}
+
+
 @dataclass(frozen=True)
 class Provider:
     name: str
@@ -60,11 +73,11 @@ class Provider:
 
     @property
     def client_id(self) -> str:
-        return settings.kakao_rest_api_key if self.name == "kakao" else settings.google_client_id
+        return str(getattr(settings, _KEYS[self.name][0]))
 
     @property
     def client_secret(self) -> str:
-        return settings.kakao_client_secret if self.name == "kakao" else settings.google_client_secret
+        return str(getattr(settings, _KEYS[self.name][1]))
 
     @property
     def enabled(self) -> bool:
@@ -90,7 +103,7 @@ class Provider:
             q["code_challenge_method"] = "S256"
         return f"{self.authorize_url}?{urlencode(q)}"
 
-    def exchange(self, code: str, code_verifier: str | None) -> str:
+    def exchange(self, code: str, code_verifier: str | None, state: str | None = None) -> str:
         """인가 코드 -> 액세스 토큰."""
         data = {
             "grant_type": "authorization_code",
@@ -102,6 +115,8 @@ class Provider:
             data["client_secret"] = self.client_secret
         if self.pkce and code_verifier:
             data["code_verifier"] = code_verifier
+        if self.name == "naver" and state:
+            data["state"] = state  # 네이버는 토큰 요청에도 state 가 필수
         body = _post_form(self.token_url, data)
         token = body.get("access_token")
         if not token:
@@ -110,30 +125,25 @@ class Provider:
 
     def profile(self, access_token: str) -> Profile:
         u = _get_json(self.userinfo_url, access_token)
-        if self.name == "kakao":
-            acct = u.get("kakao_account") or {}
-            if u.get("id") is None:
+        if self.name == "naver":
+            r = u.get("response") or {}
+            if u.get("resultcode") != "00" or not r.get("id"):
                 raise OAuthError("profile_failed")
-            return Profile(
-                "kakao",
-                str(u["id"]),
-                acct.get("email"),
-                bool(acct.get("is_email_verified")) and bool(acct.get("is_email_valid", True)),
-                (acct.get("profile") or {}).get("nickname"),
-            )
+            # 인증 여부를 알려주지 않으므로 기존 계정에 자동 연결하지 않는다
+            return Profile("naver", str(r["id"]), r.get("email"), False, r.get("nickname") or r.get("name"))
         if not u.get("sub"):
             raise OAuthError("profile_failed")
         return Profile("google", str(u["sub"]), u.get("email"), bool(u.get("email_verified")), u.get("name"))
 
 
 PROVIDERS: dict[str, Provider] = {
-    "kakao": Provider(
-        "kakao",
-        "카카오",
-        "https://kauth.kakao.com/oauth/authorize",
-        "https://kauth.kakao.com/oauth/token",
-        "https://kapi.kakao.com/v2/user/me",
-        "",  # 동의 항목은 카카오 디벨로퍼스 콘솔 설정을 따른다 (이메일은 선택 동의일 수 있다)
+    "naver": Provider(
+        "naver",
+        "네이버",
+        "https://nid.naver.com/oauth2.0/authorize",
+        "https://nid.naver.com/oauth2.0/token",
+        "https://openapi.naver.com/v1/nid/me",
+        "",  # 제공 항목은 네이버 개발자 센터 앱 설정을 따른다
         False,
     ),
     "google": Provider(

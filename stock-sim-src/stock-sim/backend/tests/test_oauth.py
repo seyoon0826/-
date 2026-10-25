@@ -1,4 +1,4 @@
-"""소셜 로그인 (카카오, 구글). 제공자 HTTP 는 가짜로 바꾼다 (네트워크 없이)."""
+"""소셜 로그인 (네이버, 구글). 제공자 HTTP 는 가짜로 바꾼다 (네트워크 없이)."""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ SECRET = "test-secret-" + "x" * 32
 def env(sf, monkeypatch):
     for k, v in {
         "jwt_secret": SECRET,
-        "kakao_rest_api_key": "kakao-key",
-        "kakao_client_secret": "kakao-secret",
+        "naver_login_client_id": "naver-id",
+        "naver_login_client_secret": "naver-secret",
         "google_client_id": "google-id",
         "google_client_secret": "google-secret",
         "api_public_url": "http://api.test",
@@ -62,7 +62,7 @@ def fake_provider(monkeypatch, profile: dict, calls: list | None = None):
     monkeypatch.setattr(oauth, "_get_json", get)
 
 
-def start(c, provider="kakao", next_="/paper"):
+def start(c, provider="naver", next_="/paper"):
     r = c.get(f"/api/v1/auth/oauth/{provider}/start", params={"next": next_})
     assert r.status_code == 302
     return r, parse_qs(urlparse(r.headers["location"]).query)
@@ -76,14 +76,10 @@ def login(c, provider, profile_patch, monkeypatch, profile, next_="/paper", call
     )
 
 
-KAKAO = {
-    "id": 123456789,
-    "kakao_account": {
-        "email": "Kim@Kakao.com",
-        "is_email_verified": True,
-        "is_email_valid": True,
-        "profile": {"nickname": "김주식"},
-    },
+NAVER = {
+    "resultcode": "00",
+    "message": "success",
+    "response": {"id": "nv-abc123", "email": "kim@naver.com", "nickname": "김주식", "name": "김철수"},
 }
 GOOGLE = {"sub": "g-42", "email": "lee@gmail.com", "email_verified": True, "name": "Lee"}
 
@@ -91,19 +87,19 @@ GOOGLE = {"sub": "g-42", "email": "lee@gmail.com", "email_verified": True, "name
 # ---------------------------------------------------------------- 시작 (인가 요청)
 def test_providers_list_only_configured(env):
     c, _, mp = env
-    assert [p["id"] for p in c.get("/api/v1/auth/oauth/providers").json()["data"]] == ["kakao", "google"]
+    assert [p["id"] for p in c.get("/api/v1/auth/oauth/providers").json()["data"]] == ["naver", "google"]
     mp.setattr(settings, "google_client_id", "")
-    assert [p["id"] for p in c.get("/api/v1/auth/oauth/providers").json()["data"]] == ["kakao"]
+    assert [p["id"] for p in c.get("/api/v1/auth/oauth/providers").json()["data"]] == ["naver"]
     assert c.get("/api/v1/auth/oauth/google/start").status_code == 404
-    assert c.get("/api/v1/auth/oauth/naver/start").status_code == 404
+    assert c.get("/api/v1/auth/oauth/kakao/start").status_code == 404
 
 
-def test_kakao_start_redirects_with_client_id_redirect_uri_and_state(env):
+def test_naver_start_redirects_with_client_id_redirect_uri_and_state(env):
     c, _, _ = env
-    r, q = start(c, "kakao")
-    assert r.headers["location"].startswith("https://kauth.kakao.com/oauth/authorize?")
-    assert q["client_id"] == ["kakao-key"] and q["response_type"] == ["code"]
-    assert q["redirect_uri"] == ["http://api.test/api/v1/auth/oauth/kakao/callback"]
+    r, q = start(c, "naver")
+    assert r.headers["location"].startswith("https://nid.naver.com/oauth2.0/authorize?")
+    assert q["client_id"] == ["naver-id"] and q["response_type"] == ["code"]
+    assert q["redirect_uri"] == ["http://api.test/api/v1/auth/oauth/naver/callback"]
     assert len(q["state"][0]) >= 20 and "code_challenge" not in q
     cookie = r.headers["set-cookie"]
     assert "oauth_state=" in cookie and "HttpOnly" in cookie and "Path=/api/v1/auth/oauth" in cookie
@@ -118,25 +114,30 @@ def test_google_start_uses_pkce_s256_and_openid_scope(env):
 
 
 # ---------------------------------------------------------------- 콜백
-def test_kakao_callback_creates_user_sets_refresh_cookie_and_redirects(env):
+def test_naver_callback_creates_user_sets_refresh_cookie_and_redirects(env):
     c, sf, mp = env
     calls: list = []
-    r = login(c, "kakao", None, mp, KAKAO, next_="/paper?code=005930", calls=calls)
+    fake_provider(mp, NAVER, calls)
+    _, q = start(c, "naver", "/paper?code=005930")
+    r = c.get("/api/v1/auth/oauth/naver/callback", params={"code": "auth-code", "state": q["state"][0]})
     assert r.status_code == 302 and r.headers["location"] == "http://web.test/paper?code=005930&login=ok"
     assert "refresh_token=" in r.headers.get("set-cookie", "")
     token_req = calls[0][2]
-    assert calls[0][1] == "https://kauth.kakao.com/oauth/token"
+    assert calls[0][1] == "https://nid.naver.com/oauth2.0/token"
     assert token_req == {
         "grant_type": "authorization_code",
-        "client_id": "kakao-key",
-        "redirect_uri": "http://api.test/api/v1/auth/oauth/kakao/callback",
+        "client_id": "naver-id",
+        "redirect_uri": "http://api.test/api/v1/auth/oauth/naver/callback",
         "code": "auth-code",
-        "client_secret": "kakao-secret",
+        "client_secret": "naver-secret",
+        "state": q["state"][0],  # 네이버는 토큰 요청에도 state 필수
     }
     with sf() as s:
         u = s.scalars(select(User)).one()
-        assert u.email == "kim@kakao.com" and u.display_name == "김주식" and u.password_hash is None
-        assert s.scalars(select(OAuthAccount)).one().subject == "123456789"
+        # 네이버는 이메일 인증 여부를 주지 않으므로 사용자 이메일로 쓰지 않고 연결 기록에만 둔다
+        assert u.email is None and u.display_name == "김주식" and u.password_hash is None
+        link = s.scalars(select(OAuthAccount)).one()
+        assert link.subject == "nv-abc123" and link.email == "kim@naver.com"
     me = c.post("/api/v1/auth/refresh")  # 프론트가 하는 것처럼 쿠키로 액세스 토큰 받기
     assert me.status_code == 200 and me.json()["data"]["user"]["display_name"] == "김주식"
 
@@ -159,9 +160,9 @@ def test_google_callback_sends_code_verifier_matching_challenge(env):
 
 def test_same_social_account_logs_into_same_user(env):
     c, sf, mp = env
-    login(c, "kakao", None, mp, KAKAO)
+    login(c, "naver", None, mp, NAVER)
     c.cookies.clear()
-    login(c, "kakao", None, mp, KAKAO)
+    login(c, "naver", None, mp, NAVER)
     with sf() as s:
         assert len(s.scalars(select(User)).all()) == 1 and len(s.scalars(select(OAuthAccount)).all()) == 1
 
@@ -178,32 +179,39 @@ def test_verified_email_links_existing_password_account(env):
 
 def test_unverified_email_does_not_take_over_existing_account(env):
     c, sf, mp = env
-    c.post("/api/v1/auth/signup", json={"email": "kim@kakao.com", "password": "correct-horse-battery"})
+    c.post("/api/v1/auth/signup", json={"email": "kim@naver.com", "password": "correct-horse-battery"})
     c.cookies.clear()
-    unverified = {**KAKAO, "kakao_account": {**KAKAO["kakao_account"], "is_email_verified": False}}
-    login(c, "kakao", None, mp, unverified)
+    login(c, "naver", None, mp, NAVER)  # 네이버 이메일은 인증 여부를 알 수 없다
     with sf() as s:
         users = s.scalars(select(User).order_by(User.id)).all()
         assert len(users) == 2 and users[1].email is None  # 새 사용자, 이메일은 비워 둔다
         assert s.scalars(select(OAuthAccount)).one().user_id == users[1].id
 
 
-def test_kakao_without_email_consent_creates_user_without_email(env):
+def test_naver_without_email_creates_user_without_email(env):
     c, sf, mp = env
-    login(c, "kakao", None, mp, {"id": 7, "kakao_account": {"profile": {"nickname": "익명"}}})
+    login(c, "naver", None, mp, {"resultcode": "00", "response": {"id": "7", "nickname": "익명"}})
     with sf() as s:
         u = s.scalars(select(User)).one()
         assert u.email is None and u.display_name == "익명"
 
 
+def test_naver_profile_error_result_is_rejected(env):
+    c, sf, mp = env
+    r = login(c, "naver", None, mp, {"resultcode": "024", "message": "Authentication failed"})
+    assert "login_error=profile_failed" in r.headers["location"]
+    with sf() as s:
+        assert s.scalars(select(User)).all() == []
+
+
 def test_state_mismatch_or_missing_cookie_is_rejected(env):
     c, sf, mp = env
-    fake_provider(mp, KAKAO)
-    start(c, "kakao")
-    r = c.get("/api/v1/auth/oauth/kakao/callback", params={"code": "x", "state": "forged"})
+    fake_provider(mp, NAVER)
+    start(c, "naver")
+    r = c.get("/api/v1/auth/oauth/naver/callback", params={"code": "x", "state": "forged"})
     assert r.status_code == 302 and "login_error=state_mismatch" in r.headers["location"]
     c.cookies.clear()
-    r = c.get("/api/v1/auth/oauth/kakao/callback", params={"code": "x", "state": "anything"})
+    r = c.get("/api/v1/auth/oauth/naver/callback", params={"code": "x", "state": "anything"})
     assert "login_error=state_expired" in r.headers["location"]
     with sf() as s:
         assert s.scalars(select(User)).all() == []
@@ -212,23 +220,23 @@ def test_state_mismatch_or_missing_cookie_is_rejected(env):
 def test_state_cookie_for_other_provider_is_rejected(env):
     c, _, mp = env
     fake_provider(mp, GOOGLE)
-    _, q = start(c, "kakao")
+    _, q = start(c, "naver")
     r = c.get("/api/v1/auth/oauth/google/callback", params={"code": "x", "state": q["state"][0]})
     assert "login_error=state_mismatch" in r.headers["location"]
 
 
 def test_user_cancel_and_provider_failure_redirect_with_error(env):
     c, sf, mp = env
-    start(c, "kakao")
-    r = c.get("/api/v1/auth/oauth/kakao/callback", params={"error": "access_denied"})
+    start(c, "naver")
+    r = c.get("/api/v1/auth/oauth/naver/callback", params={"error": "access_denied"})
     assert "login_error=cancelled" in r.headers["location"]
 
     def boom(url, data):
         raise oauth.OAuthError("token_exchange_failed")
 
     mp.setattr(oauth, "_post_form", boom)
-    _, q = start(c, "kakao")
-    r = c.get("/api/v1/auth/oauth/kakao/callback", params={"code": "x", "state": q["state"][0]})
+    _, q = start(c, "naver")
+    r = c.get("/api/v1/auth/oauth/naver/callback", params={"code": "x", "state": q["state"][0]})
     assert "login_error=token_exchange_failed" in r.headers["location"]
     assert "refresh_token=" not in r.headers.get("set-cookie", "")
 
@@ -238,13 +246,13 @@ def test_next_path_cannot_redirect_off_site(env):
         assert oauth.safe_next(bad) == "/paper"
     assert oauth.safe_next("/predict/005930") == "/predict/005930"
     c, _, mp = env
-    r = login(c, "kakao", None, mp, KAKAO, next_="//evil.example")
+    r = login(c, "naver", None, mp, NAVER, next_="//evil.example")
     assert r.headers["location"] == "http://web.test/paper?login=ok"
 
 
 def test_social_only_user_cannot_password_login(env):
     c, _, mp = env
-    login(c, "kakao", None, mp, KAKAO)
-    r = c.post("/api/v1/auth/login", json={"email": "kim@kakao.com", "password": "anything-at-all"})
+    login(c, "google", None, mp, GOOGLE)
+    r = c.post("/api/v1/auth/login", json={"email": "lee@gmail.com", "password": "anything-at-all"})
     assert r.status_code == 401
     assert not security.verify_password(None, "x")

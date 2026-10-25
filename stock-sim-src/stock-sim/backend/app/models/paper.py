@@ -31,7 +31,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    email: Mapped[str | None] = mapped_column(String(255), unique=True)  # 카카오는 이메일 동의가 선택
+    email: Mapped[str | None] = mapped_column(String(255), unique=True)  # 소셜 로그인은 이메일이 없을 수 있다
     password_hash: Mapped[str | None] = mapped_column(String(255))  # 소셜로만 가입하면 없음
     display_name: Mapped[str | None] = mapped_column(String(100))
     token_version: Mapped[int] = mapped_column(
@@ -41,7 +41,7 @@ class User(Base):
 
 
 class OAuthAccount(Base):
-    """소셜 로그인 연결 (카카오, 구글). 같은 (provider, subject) 는 항상 같은 사용자."""
+    """소셜 로그인 연결 (네이버, 구글). 같은 (provider, subject) 는 항상 같은 사용자."""
 
     __tablename__ = "oauth_accounts"
     __table_args__ = (UniqueConstraint("provider", "subject", name="uq_oauth_provider_subject"),)

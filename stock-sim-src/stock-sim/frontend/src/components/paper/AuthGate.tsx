@@ -8,7 +8,7 @@ import { API_BASE, ApiError, swrFetcher } from "@/lib/api";
 import { login, signup } from "@/lib/auth";
 
 interface OAuthProvider {
-  id: "kakao" | "google";
+  id: "naver" | "google";
   label: string;
 }
 
@@ -23,13 +23,10 @@ const LOGIN_ERRORS: Record<string, string> = {
   provider_not_available: "이 로그인 방식은 지금 쓸 수 없습니다.",
 };
 
-function KakaoMark() {
+function NaverMark() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="currentColor"
-        d="M12 3C6.5 3 2 6.6 2 11c0 2.8 1.9 5.3 4.7 6.7l-1 3.6c-.1.3.3.6.6.4l4.3-2.8c.5.1.9.1 1.4.1 5.5 0 10-3.6 10-8S17.5 3 12 3z"
-      />
+    <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden>
+      <path fill="currentColor" d="M13.6 10.7 6.1 0H0v20h6.4V9.3L13.9 20H20V0h-6.4z" />
     </svg>
   );
 }
@@ -57,7 +54,7 @@ function GoogleMark() {
   );
 }
 
-/** 로그인/가입 (FR-AU-1/3). 카카오·구글 소셜 로그인이 기본, 이메일 로그인은 접어 둔다. */
+/** 로그인/가입 (FR-AU-1/3). 네이버·구글 소셜 로그인이 기본, 이메일 로그인은 접어 둔다. */
 export default function AuthGate({ next = "/paper" }: { next?: string }) {
   const params = useSearchParams();
   const providers = useSWR<OAuthProvider[]>(["/auth/oauth/providers", null], swrFetcher);
@@ -102,8 +99,8 @@ export default function AuthGate({ next = "/paper" }: { next?: string }) {
       <div className="social-buttons">
         {available.map((p) => (
           <a key={p.id} className={`social-btn social-${p.id}`} href={startUrl(p.id)}>
-            {p.id === "kakao" ? <KakaoMark /> : <GoogleMark />}
-            <span>{p.id === "kakao" ? "카카오로 시작하기" : "Google로 계속하기"}</span>
+            {p.id === "naver" ? <NaverMark /> : <GoogleMark />}
+            <span>{p.id === "naver" ? "네이버로 시작하기" : "Google로 계속하기"}</span>
           </a>
         ))}
         {noSocial && (

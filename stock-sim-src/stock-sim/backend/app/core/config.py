@@ -54,9 +54,10 @@ class Settings(BaseSettings):
     login_rate_per_min: int = 10  # IP 당 분당 로그인/가입 시도 (FR-AU-5)
     cors_origins: str = "http://localhost:3000"  # 쉼표 구분 화이트리스트 (SPEC 14)
 
-    # 소셜 로그인 (카카오, 구글). 키가 비어 있으면 그 제공자 버튼을 감춘다.
-    kakao_rest_api_key: str = ""  # 카카오 디벨로퍼스 > 앱 키 > REST API 키 (= client_id)
-    kakao_client_secret: str = ""  # 카카오 로그인 > 보안 > Client Secret (기본 사용 설정)
+    # 소셜 로그인 (네이버, 구글). 키가 비어 있으면 그 제공자 버튼을 감춘다.
+    # 뉴스 검색용 NAVER_CLIENT_ID 와 따로 둔다 (같은 앱에 두 API 를 켰다면 같은 값을 넣어도 된다)
+    naver_login_client_id: str = ""  # 네이버 개발자 센터 > 내 애플리케이션 > Client ID
+    naver_login_client_secret: str = ""  # 같은 화면의 Client Secret
     google_client_id: str = ""
     google_client_secret: str = ""
     api_public_url: str = (

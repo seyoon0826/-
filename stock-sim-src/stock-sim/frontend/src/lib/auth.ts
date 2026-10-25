@@ -10,7 +10,7 @@ import { API_BASE, ApiError } from "@/lib/api";
 
 export interface AuthUser {
   id: number;
-  email: string | null; // 카카오에서 이메일 제공에 동의하지 않으면 없다
+  email: string | null; // 소셜 로그인은 이메일이 없을 수 있다 (네이버는 인증 여부를 몰라 저장하지 않음)
   display_name: string | null;
   created_at: string;
 }

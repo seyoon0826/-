@@ -36,15 +36,15 @@ docker compose up -d --build
   `NEXT_PUBLIC_API_URL=https://<API 주소>` 로 바꾸고 `docker compose up -d --build frontend api`.
   HTTPS 는 앞단 리버스 프록시(Caddy/nginx 등)에서 처리한다.
 
-## 소셜 로그인 (카카오, 구글)
+## 소셜 로그인 (네이버, 구글)
 키를 `.env` 에 넣으면 로그인 화면에 버튼이 나타난다. 이메일 로그인은 "이메일로 로그인" 아래에 접혀 있다.
 
-카카오 ([developers.kakao.com](https://developers.kakao.com))
-1. 내 애플리케이션 > 애플리케이션 추가
-2. 앱 키 > REST API 키 -> `KAKAO_REST_API_KEY`
-3. 카카오 로그인 > 활성화, Redirect URI 에 `http://localhost:8000/api/v1/auth/oauth/kakao/callback` 등록
-4. 카카오 로그인 > 보안 > Client Secret 코드 -> `KAKAO_CLIENT_SECRET`
-5. 동의항목: 닉네임(필수), 카카오계정 이메일(선택, 비즈 앱이 아니면 선택 동의만 가능). 이메일이 없어도 가입된다.
+네이버 ([developers.naver.com](https://developers.naver.com/apps))
+1. Application > 애플리케이션 등록, 사용 API: 네이버 로그인
+2. 제공 정보: 별명(필수), 이메일(선택). 이메일 인증 여부를 주지 않아 기존 이메일 계정에 자동 연결하지 않는다.
+3. 환경: PC 웹, 서비스 URL `http://localhost:3000`, Callback URL `http://localhost:8000/api/v1/auth/oauth/naver/callback`
+4. Client ID/Secret -> `NAVER_LOGIN_CLIENT_ID`, `NAVER_LOGIN_CLIENT_SECRET` (뉴스 검색용 `NAVER_CLIENT_ID` 와 별개)
+5. 검수 전에는 '멤버관리'에 등록한 네이버 아이디만 로그인할 수 있다.
 
 구글 ([console.cloud.google.com](https://console.cloud.google.com))
 1. API 및 서비스 > OAuth 동의 화면 구성 (외부, 테스트 사용자 추가)

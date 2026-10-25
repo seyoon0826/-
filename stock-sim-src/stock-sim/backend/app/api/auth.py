@@ -211,7 +211,7 @@ async def me(user_id: int = Depends(current_user_id), db: Session = Depends(get_
     return envelope(_user_dict(u))
 
 
-# ---------------------------------------------------------------- 소셜 로그인 (카카오, 구글)
+# ---------------------------------------------------------------- 소셜 로그인 (네이버, 구글)
 OAUTH_COOKIE = "oauth_state"
 OAUTH_COOKIE_PATH = "/api/v1/auth/oauth"
 OAUTH_STATE_SECONDS = 600
@@ -288,7 +288,7 @@ async def oauth_callback(
         return _back_to_front(nxt, "provider_not_available")
 
     def work() -> User:
-        token = p.exchange(code, saved.get("verifier"))
+        token = p.exchange(code, saved.get("verifier"), state)
         user = oauth.find_or_create_user(db, p.profile(token))
         db.commit()
         return user
