@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import Logo from "@/components/ui/Logo";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import { logout, useAuth } from "@/lib/auth";
 
@@ -18,8 +19,8 @@ export default function NavLinks() {
   const { user, ready } = useAuth();
   return (
     <nav className="nav" aria-label="주 메뉴">
-      <Link href="/" className="brand">
-        StockSim
+      <Link href="/" className="brand" aria-label="StockSim 처음으로">
+        <Logo />
       </Link>
       {LINKS.map((l) => (
         <Link key={l.href} href={l.href} className={path?.startsWith(l.href) ? "active" : ""}>

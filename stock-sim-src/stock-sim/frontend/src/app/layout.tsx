@@ -25,8 +25,25 @@ const korean = Noto_Sans_KR({
   variable: "--font-kr",
 });
 
-export const metadata: Metadata = { title: "StockSim", description: "코스피 대형주 5거래일 예측과 모의투자" };
-export const viewport: Viewport = { width: "device-width", initialScale: 1 };
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+
+export const metadata: Metadata = {
+  metadataBase: new URL(SITE),
+  title: { default: "StockSim", template: "%s | StockSim" },
+  description:
+    "코스피 대형주 30종목을 매일 장 마감 뒤 5거래일 예측 순위로 줄 세우고, 같은 돈으로 AI와 모의투자를 겨룹니다.",
+  applicationName: "StockSim",
+  openGraph: { type: "website", siteName: "StockSim", locale: "ko_KR" },
+  twitter: { card: "summary_large_image" },
+};
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#171a1f" },
+  ],
+};
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

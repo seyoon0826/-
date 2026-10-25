@@ -2460,3 +2460,29 @@ body:has(.home) .theme-toggle {
 :root[data-theme="dark"] .pcard {
   color: var(--black);
 }
+
+/* ================================================================ 로고 */
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.logo-mark {
+  flex-shrink: 0;
+  color: var(--text); /* 판은 글자색: 라이트에서 먹, 다크에서 종이색 */
+  --logo-zero: var(--surface);
+  --logo-dn: #3b6cf0;
+  --logo-up: #e5332a;
+}
+.logo-word {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+body:has(.home) .logo-mark {
+  color: #0a0a0a;
+  --logo-zero: #ffffff;
+}
+:root[data-theme="dark"] body:has(.home) .logo-mark {
+  color: #f5f5f2;
+  --logo-zero: #13202e;
+}
